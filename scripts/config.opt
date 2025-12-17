@@ -1,0 +1,10 @@
+;; option bytes(0x4800~0x480A)
+    .area   OPTION
+
+_bootO_start_opt:
+    .db 0x00            ; ROP
+    .db 0x00,0xFF       ; UCB
+    .db 0x00,0xFF       ; AFR
+    .db 0x00,0xFF       ; Misc
+    .db 0x00,0xFF       ; Clock
+    .db 0x00,0xFF       ; HSECNT

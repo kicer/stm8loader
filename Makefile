@@ -21,8 +21,7 @@ SRC_INC_DIR = $(SRC_DIR)/inc
 # Source files
 SRCS    := $(wildcard $(SRC_DIR)/*.c) $(wildcard $(BSP_DIR)/*.c)
 ASRCS   := $(wildcard $(SRC_DIR)/*.s) $(wildcard $(BSP_DIR)/*.s)
-OPT_SRCS := $(SCRIPTS_DIR)/bootloader.opt
-#OPT_SRCS := $(SCRIPTS_DIR)/factory.opt
+OPT_SRCS := $(wildcard $(SCRIPTS_DIR)/*.opt)
 
 # Compiler tools
 CC       = $(TOOLCHAIN)/sdcc
@@ -38,6 +37,7 @@ CFLAGS  += --stack-auto --noinduction --use-non-free
 ## Disable lospre (workaround for bug 2673)
 #CFLAGS  += --nolospre
 LDFLAGS  = -m$(ARCH) -l$(ARCH) --out-fmt-ihx
+OPTFLAGS = -Wl-bOPTION=0x4800 -Wl-bOPTION_BOOT=0x481C
 
 # Object files
 OBJS     = $(patsubst %.c,$(BUILD_DIR)/%.rel,$(notdir $(SRCS))) \
@@ -79,7 +79,7 @@ $(BUILD_DIR)/$(TARGET).bin: $(BUILD_DIR)/$(TARGET).hex
 
 # Link option bytes separately at address 0x4800
 $(BUILD_DIR)/option.hex: $(OPT_OBJS)
-	$(CC) $(LDFLAGS) -Wl-bOPTION=0x4800 $(OPT_OBJS) -o $@ || true
+	$(CC) $(LDFLAGS) $(OPTFLAGS) $(OPT_OBJS) -o $@ || true
 
 $(BUILD_DIR)/option.bin: $(BUILD_DIR)/option.hex
 	$(OBJCOPY) -I ihex --output-target=binary $< $@
