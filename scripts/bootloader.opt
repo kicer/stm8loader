@@ -5,51 +5,53 @@
 ;; 03E0|4820   0D C7 52 32 C7 52 35 C7     52 31 5C 27 0D 72 0B 52
 ;; 03F0|4830   30 F8 3B 52 31 5F 4C 26     F1 81 72 CC 48 3E 80 04
 
-;; UART1 寄存器地址定义（STM8S103F3）
-UART1_SR    = 0x5230   ; 状态寄存器
-UART1_DR    = 0x5231   ; 数据寄存器
-UART1_BRR1  = 0x5232   ; 波特率寄存器1
-UART1_CR2   = 0x5235   ; 控制寄存器2
+;; UART1 register address definitions (STM8S103F3)
+UART1_SR    = 0x5230   ; Status register
+UART1_DR    = 0x5231   ; Data register
+UART1_BRR1  = 0x5232   ; Baud rate register 1
+UART1_CR2   = 0x5235   ; Control register 2
+RAM_SIZE    = 0x0400   ; Ram size (end of address)
 
-;; 引导程序主体（位于OPT保留区域0x481C-0x483F）
+;; Bootloader body (located in OPT reserved area 0x481C-0x483F)
     .area   OPTION_BOOT
 
 _bootO_start_data:
-    ;; 终止标志（复制过程遇到0停止）
-    .db     0x00       ; [00] 终止字节
-    
-    ;; ret
-    .db     0x03, 0xDF ; [03 DF] RAM中运行地址
+    ;; Termination flag (copy process stops when encountering 0)
+    .db     0x00       ; [00] Termination byte
+
+    ;; [03 DF] RAM address for ret execution
+    .db     (RAM_SIZE-(_bootO_go_adr-_bootO_start+2))>>8
+    .db     (RAM_SIZE-(_bootO_go_adr-_bootO_start+2))&0xFF
 
 _bootO_start:
-    ;; 初始化UART 9600 8N1
-    ld      A, #0x0D   ; [A6 0D] A = 0x0D（版本号+UART配置）
-    ld      UART1_BRR1, A ; [C7 52 32] 设置波特率
-    ld      UART1_CR2, A  ; [C7 52 35] 启用UART发送/接收
-    
-    ;; 发送BREAK信号和版本号$0D
-    ld      UART1_DR, A   ; [C7 52 31] 发送版本号0x0D
-    
-    ;; 接收最大243字节的数据块并压入栈中
+    ;; Initialize UART 9600 8N1
+    ld      A, #0x0D   ; [A6 0D] A = 0x0D (version number + UART configuration)
+    ld      UART1_BRR1, A ; [C7 52 32] Set baud rate
+    ld      UART1_CR2, A  ; [C7 52 35] Enable UART transmit/receive
+
+    ;; Send BREAK signal and version number $0D
+    ld      UART1_DR, A   ; [C7 52 31] Send version number 0x0D
+
+    ;; Receive maximum 243-byte data block and push onto stack
 _bootO_rx_byte:
-    incw    X           ; [5C] X加1，检查是否溢出（超时检测）
-    jreq    _bootO_exit ; [27 0D] 如果X溢出（接收超时），退出
-    
-    ;; 等待接收数据
+    incw    X           ; [5C] Increment X, check for overflow (timeout detection)
+    jreq    _bootO_exit ; [27 0D] If X overflows (receive timeout), exit
+
+    ;; Wait for data reception
     btjf    UART1_SR, #5, _bootO_rx_byte ;[72 0B 52 30 F8]
-    
-    ;; 收到数据，压入栈中
+
+    ;; Data received, push onto stack
     push    UART1_DR   ; [3B 52 31]
-    clrw    X          ; [5F] 重置X（用于超时检测）
-    inc     A          ; [4C] A加1，用作接收计数器
-    jrne    _bootO_rx_byte ; [26 F1] 如果A不为0，继续接收
-    
-    ;; 接收完成，跳转到接收的代码
-    ret                ; [81] 通过ret指令跳转到栈顶地址
-    
+    clrw    X          ; [5F] Reset X (for timeout detection)
+    inc     A          ; [4C] Increment A, used as receive counter
+    jrne    _bootO_rx_byte ; [26 F1] If A is not 0, continue receiving
+
+    ;; Reception complete, jump to received code
+    ret                ; [81] Jump to address at top of stack via ret instruction
+
 _bootO_exit:
-    ;; 超时退出，跳转到用户程序
-    jp      [_bootO_go_adr] ; [72 CC 48 3E] 间接跳转
-    
+    ;; Timeout exit, jump to user program
+    jp      [_bootO_go_adr] ; [72 CC 48 3E] Indirect jump
+
 _bootO_go_adr:
-    .db     0x80, 0x04    ; [80 04] 用户程序地址：0x8004
+    .db     0x80, 0x04    ; [80 04] User program address: 0x8004
