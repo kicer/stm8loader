@@ -10,6 +10,9 @@ ARCH = stm8
 F_CPU   ?= 2000000
 TARGET  ?= $(lastword $(subst /, ,$(CURDIR)))
 
+# Bootloader mode control
+ENABLE_OPTION_BOOTLOADER ?= 1
+
 # Directory structure
 BUILD_DIR  = objects
 SRC_DIR    = src
@@ -39,6 +42,15 @@ CFLAGS  += --stack-auto --noinduction --use-non-free
 LDFLAGS  = -m$(ARCH) -l$(ARCH) --out-fmt-ihx
 OPTFLAGS = -Wl-bOPTION=0x4800 -Wl-bOPTION_BOOT=0x481C
 
+# Conditionally add ENABLE_OPTION_BOOTLOADER macro
+ifneq ($(ENABLE_OPTION_BOOTLOADER),0)
+    CFLAGS += -DENABLE_OPTION_BOOTLOADER
+    BOOT_SUFFIX = _boot
+else
+    BOOT_SUFFIX =
+endif
+
+
 # Object files
 OBJS     = $(patsubst %.c,$(BUILD_DIR)/%.rel,$(notdir $(SRCS))) \
            $(patsubst %.s,$(BUILD_DIR)/%.rel,$(notdir $(ASRCS)))
@@ -50,7 +62,7 @@ vpath %.s $(sort $(dir $(ASRCS)))
 vpath %.opt $(sort $(dir $(OPT_SRCS)))
 
 # Default target: build main application and option bytes
-all: $(BUILD_DIR)/$(TARGET).bin $(BUILD_DIR)/option.bin size
+all: $(BUILD_DIR)/$(TARGET)$(BOOT_SUFFIX).bin $(BUILD_DIR)/option.bin size
 
 # Compile C files
 $(BUILD_DIR)/%.rel: %.c | $(BUILD_DIR)
@@ -77,6 +89,27 @@ $(BUILD_DIR)/$(TARGET).hex: $(OBJS)
 $(BUILD_DIR)/$(TARGET).bin: $(BUILD_DIR)/$(TARGET).hex
 	$(OBJCOPY) -I ihex --output-target=binary $< $@
 
+# Adjust vector table for bootloader mode (swap reset and trap vectors)
+ifeq ($(ENABLE_OPTION_BOOTLOADER),1)
+$(BUILD_DIR)/$(TARGET)$(BOOT_SUFFIX).bin: $(BUILD_DIR)/$(TARGET).bin
+	@echo "Adjusting vector table for bootloader mode..."
+	@# Extract reset vector (bytes 2-4)
+	@dd if=$< of=$(BUILD_DIR)/reset.bin bs=1 skip=1 count=3 2>/dev/null
+	@# Extract trap vector (bytes 5-8)
+	@dd if=$< of=$(BUILD_DIR)/trap.bin bs=1 skip=4 count=4 2>/dev/null
+	@# Swap vectors and change first byte of trap vector to 0xAC (JPF)
+	@# 1. Write trap vector to output (becomes new reset vector)
+	@cat $(BUILD_DIR)/trap.bin > $@
+	@# 2. Write reset vector to output (load in wrap vector)
+	@printf "\xAC" >> $@
+	@cat $(BUILD_DIR)/reset.bin >> $@
+	@# 3. Append the rest of the file
+	@dd if=$< bs=1 skip=8 >> $@ 2>/dev/null
+	@# Clean up temporary files
+	@echo "    Reset vector moved to trap position with JPF (0xAC) instruction"
+	@echo "    Created bootloader-ready binary: $@"
+endif
+
 # Link option bytes separately at address 0x4800
 $(BUILD_DIR)/option.hex: $(OPT_OBJS)
 	$(CC) $(LDFLAGS) $(OPTFLAGS) $(OPT_OBJS) -o $@ || true
@@ -85,9 +118,9 @@ $(BUILD_DIR)/option.bin: $(BUILD_DIR)/option.hex
 	$(OBJCOPY) -I ihex --output-target=binary $< $@
 
 # Show sizes of generated binaries
-size: $(BUILD_DIR)/$(TARGET).bin $(BUILD_DIR)/option.bin
+size: $(BUILD_DIR)/$(TARGET)$(BOOT_SUFFIX).bin $(BUILD_DIR)/option.bin
 	@echo "=== Main application size ==="
-	@wc -c $(BUILD_DIR)/$(TARGET).bin
+	@wc -c $(BUILD_DIR)/$(TARGET)$(BOOT_SUFFIX).bin
 	@echo ""
 	@echo "=== Option bytes size ==="
 	@wc -c $(BUILD_DIR)/option.bin
@@ -101,23 +134,20 @@ clean:
 	rm -fR $(BUILD_DIR)
 
 # Flash main application and option bytes via ST-Link
-flash: $(BUILD_DIR)/$(TARGET).hex $(BUILD_DIR)/option.hex
+flash: $(BUILD_DIR)/$(TARGET)$(BOOT_SUFFIX).bin $(BUILD_DIR)/option.bin
 	@echo "Flashing main application..."
-	$(ISPTOOL) -c stlinkv2 -p $(MCU) -w $(BUILD_DIR)/$(TARGET).hex
+	$(ISPTOOL) -c stlinkv2 -p $(MCU) -w $(BUILD_DIR)/$(TARGET)$(BOOT_SUFFIX).bin
 	@echo ""
 	@echo "Flashing option bytes..."
-	$(ISPTOOL) -c stlinkv2 -p $(MCU) -s opt -w $(BUILD_DIR)/option.hex
+	$(ISPTOOL) -c stlinkv2 -p $(MCU) -s opt -w $(BUILD_DIR)/option.bin
 
 # Flash only option bytes
-flash-opt: $(BUILD_DIR)/option.hex
-	$(ISPTOOL) -c stlinkv2 -p $(MCU) -s opt -w $(BUILD_DIR)/option.hex
+flash-opt: $(BUILD_DIR)/option.bin
+	$(ISPTOOL) -c stlinkv2 -p $(MCU) -s opt -w $(BUILD_DIR)/option.bin
 
 # Flash only main application
-flash-app: $(BUILD_DIR)/$(TARGET).hex
-	$(ISPTOOL) -c stlinkv2 -p $(MCU) -w $(BUILD_DIR)/$(TARGET).hex
-
-# Build only option bytes
-option: $(BUILD_DIR)/option.bin
+flash-app: $(BUILD_DIR)/$(TARGET)$(BOOT_SUFFIX).bin
+	$(ISPTOOL) -c stlinkv2 -p $(MCU) -w $(BUILD_DIR)/$(TARGET)$(BOOT_SUFFIX).bin
 
 # Show help information
 help:
@@ -128,7 +158,6 @@ help:
 	@echo "  flash-app  - Flash only main application"
 	@echo "  flash-opt  - Flash only option bytes"
 	@echo "  size       - Show sizes of generated binaries"
-	@echo "  option     - Build only option bytes"
 	@echo "  help       - Show this help"
 
 .PHONY: clean all flash flash-opt flash-app size option help
