@@ -1,6 +1,7 @@
 #include <stdint.h>
 #include <stm8s.h>
 #include <delay.h>
+#include <bootloader.h>
 
 #define LED_PIN     5
 
