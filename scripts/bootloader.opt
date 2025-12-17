@@ -1,0 +1,69 @@
+;; M Code
+;;    option   O0 O1 N1 O2 N2 O3 N3 O4     N4 O5 N5
+;;      4800   00 00 FF 00 FF 00 FF 00     FF 00 FF -- -- -- -- --
+;; 03D0|4810   -- -- -- -- -- -- -- --     -- -- -- -- 00 03 DF A6
+;; 03E0|4820   0D C7 52 32 C7 52 35 C7     52 31 5C 27 0D 72 0B 52
+;; 03F0|4830   30 F8 3B 52 31 5F 4C 26     F1 81 72 CC 48 3E 80 04
+
+;; UART1 寄存器地址定义（STM8S103F3）
+UART1_SR    = 0x5230   ; 状态寄存器
+UART1_DR    = 0x5231   ; 数据寄存器
+UART1_BRR1  = 0x5232   ; 波特率寄存器1
+UART1_CR2   = 0x5235   ; 控制寄存器2
+
+;; 引导程序主体（位于OPT保留区域0x481C-0x483F）
+    .area   OPTION
+
+_bootO_start_opt:
+    .db 0x00            ; ROP
+    .db 0x00,0xFF       ; UCB
+    .db 0x00,0xFF       ; AFR
+    .db 0x00,0xFF       ; Misc
+    .db 0x00,0xFF       ; Clock
+    .db 0x00,0xFF       ; HSECNT
+
+_bootO_resv_data:
+    .db 0x00,0x00,0x00,0x00,0x00 
+    .db 0x00,0x00,0x00,0x00
+    .db 0x00,0x00,0x00,0x00
+    .db 0x00,0x00,0x00,0x00
+
+_bootO_start_data:
+    ;; 终止标志（复制过程遇到0停止）
+    .db     0x00       ; [00] 终止字节
+    
+    ;; ret
+    .db     0x03, 0xDF ; [03 DF] RAM中运行地址
+
+_bootO_start:
+    ;; 初始化UART 9600 8N1
+    ld      A, #0x0D   ; [A6 0D] A = 0x0D（版本号+UART配置）
+    ld      UART1_BRR1, A ; [C7 52 32] 设置波特率
+    ld      UART1_CR2, A  ; [C7 52 35] 启用UART发送/接收
+    
+    ;; 发送BREAK信号和版本号$0D
+    ld      UART1_DR, A   ; [C7 52 31] 发送版本号0x0D
+    
+    ;; 接收最大243字节的数据块并压入栈中
+_bootO_rx_byte:
+    incw    X           ; [5C] X加1，检查是否溢出（超时检测）
+    jreq    _bootO_exit ; [27 0D] 如果X溢出（接收超时），退出
+    
+    ;; 等待接收数据
+    btjf    UART1_SR, #5, _bootO_rx_byte ;[72 0B 52 30 F8]
+    
+    ;; 收到数据，压入栈中
+    push    UART1_DR   ; [3B 52 31]
+    clrw    X          ; [5F] 重置X（用于超时检测）
+    inc     A          ; [4C] A加1，用作接收计数器
+    jrne    _bootO_rx_byte ; [26 F1] 如果A不为0，继续接收
+    
+    ;; 接收完成，跳转到接收的代码
+    ret                ; [81] 通过ret指令跳转到栈顶地址
+    
+_bootO_exit:
+    ;; 超时退出，跳转到用户程序
+    jp      [_bootO_go_adr] ; [72 CC 48 3E] 间接跳转
+    
+_bootO_go_adr:
+    .db     0x80, 0x04    ; [80 04] 用户程序地址：0x8004
