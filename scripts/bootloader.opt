@@ -1,9 +1,9 @@
 ;; M Code
 ;;    option   O0 O1 N1 O2 N2 O3 N3 O4     N4 O5 N5
 ;;      4800   00 00 ff 00 ff 00 ff 00     ff 00 ff -- -- -- -- --
-;; 03D0|4810   -- -- -- -- -- -- -- --     -- -- -- -- 00 03 df a6
-;; 03E0|4820   0d c7 52 32 c7 52 35 c7     52 31 5f 5c 27 0c 72 0b
-;; 03F0|4830   52 30 f8 3b 52 31 4c 26     f1 81 72 cc 48 3e 80 04
+;; 03D0|4810   -- -- 00 03 d5 a6 0d c7     52 32 c7 52 35 c7 52 31
+;; 03E0|4820   a6 80 5f 5c 27 14 72 0b     52 30 f8 3b 52 31 4c 26
+;; 03F0|4830   f1 96 5c 5c 5c 13 01 26     e7 81 72 cc 48 3e 80 04
 
 ;; UART1 register address definitions
 UART1_SR    = 0x5230   ; Status register
@@ -11,49 +11,58 @@ UART1_DR    = 0x5231   ; Data register
 UART1_BRR1  = 0x5232   ; Baud rate register 1
 UART1_CR2   = 0x5235   ; Control register 2
 
-RAM_SIZE    = 0x0400   ; Ram size (end of address)
+RAM_SIZE    = 0x0400   ; Ram size (end of bootloader address)
 
 ;; Bootloader body (located in OPT reserved area 0x481C-0x483F)
     .area   OPTION_BOOT
 
-_bootO_start_data:
+_boot_start_data:
     ;; Termination flag (copy process stops when encountering 0)
     .db     0x00       ; [00] Termination byte
 
-    ;; [03 DF] RAM address for ret execution
-    .db     (RAM_SIZE-(_bootO_go_adr-_bootO_start+2))>>8
-    .db     (RAM_SIZE-(_bootO_go_adr-_bootO_start+2))&0xFF
+    ;; [03 D5] RAM address for ret execution
+    .db     (RAM_SIZE-(_boot_go_adr-_boot_start+2))>>8
+    .db     (RAM_SIZE-(_boot_go_adr-_boot_start+2))&0xFF
 
-_bootO_start:
+_boot_start:
     ;; Initialize UART 9600 8N1
-    ld      A, #0x0D   ; [A6 0D] A = 0x0D (version number + UART configuration)
-    ld      UART1_BRR1, A ; [C7 52 32] Set baud rate
-    ld      UART1_CR2, A  ; [C7 52 35] Enable UART transmit/receive
+    ld      A, #0x0D        ; [A6 0D] A = 0x0D (version number + UART configuration)
+    ld      UART1_BRR1, A   ; [C7 52 32] Set baud rate
+    ld      UART1_CR2, A    ; [C7 52 35] Enable UART transmit/receive
 
     ;; Send BREAK signal and version number $0D
-    ld      UART1_DR, A   ; [C7 52 31] Send version number 0x0D
+    ld      UART1_DR, A     ; [C7 52 31] Send version number 0x0D
 
-    ;; Receive maximum 243-byte data block and push onto stack
-_bootO_rx_byte:
-    clrw    X          ; [5F] Reset X (for timeout detection)
-_bootO_rx_wait:
-    incw    X           ; [5C] Increment X, check for overflow (timeout detection)
-    jreq    _bootO_exit ; [27 0C] If X overflows (receive timeout), exit
+    ;; Receive 128-byte data block and push onto stack
+_boot_rx_block:
+    ld      A, #0x80        ; [A6 80]
+_boot_rx_byte:
+    clrw    X               ; [5F] Reset X (for timeout detection)
+_boot_rx_wait:
+    incw    X               ; [5C] Increment X, check for overflow (timeout detection)
+    jreq    _boot_exit      ; [27 14] If X overflows (receive timeout), exit
 
     ;; Wait for data reception
-    btjf    UART1_SR, #5, _bootO_rx_wait;[72 0B 52 30 F8]
+    btjf    UART1_SR, #5, _boot_rx_wait ;[72 0B 52 30 F8]
 
     ;; Data received, push onto stack
-    push    UART1_DR   ; [3B 52 31]
-    inc     A          ; [4C] Increment A, used as receive counter
-    jrne    _bootO_rx_byte ; [26 F1] If A is not 0, continue receiving
+    push    UART1_DR        ; [3B 52 31]
+    inc     A               ; [4C] Increment A, used as receive counter
+    jrne    _boot_rx_byte ; [26 F1] If A is not 0, continue receiving
 
+    ;; Check address
+    ldw     X, SP           ; [96]
+    incw    X               ; [5c]
+    incw    X               ; [5c]
+    incw    X               ; [5c]
+    cpw     X, (1, SP)      ; [13 01]
+    jrne    _boot_rx_block  ; [26 E7]
     ;; Reception complete, jump to received code
-    ret                ; [81] Jump to address at top of stack via ret instruction
+    ret                     ; [81] Jump to address at top of stack via ret instruction
 
-_bootO_exit:
+_boot_exit:
     ;; Timeout exit, jump to user program
-    jp      [_bootO_go_adr] ; [72 CC 48 3E] Indirect jump
+    jp      [_boot_go_adr]  ; [72 CC 48 3E] Indirect jump
 
-_bootO_go_adr:
-    .db     0x80, 0x04    ; [80 04] User program address: 0x8004
+_boot_go_adr:
+    .db     0x80, 0x04      ; [80 04] User program address: 0x8004
