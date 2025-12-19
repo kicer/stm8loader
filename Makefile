@@ -40,7 +40,7 @@ CFLAGS  += --stack-auto --noinduction --use-non-free
 ## Disable lospre (workaround for bug 2673)
 #CFLAGS  += --nolospre
 LDFLAGS  = -m$(ARCH) -l$(ARCH) --out-fmt-ihx
-OPTFLAGS = -Wl-bOPTION=0x4800 -Wl-bOPTION_BOOT=0x4812
+OPTFLAGS = -Wl-bOPTION=0x4800 -Wl-bOPTION_BOOT=0x480D
 
 # Conditionally add ENABLE_OPTION_BOOTLOADER macro
 ifneq ($(ENABLE_OPTION_BOOTLOADER),0)

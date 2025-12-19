@@ -9,8 +9,13 @@ void main(void) {
     PB_DDR |= (1 << LED_PIN);
     PB_CR1 |= (1 << LED_PIN);
 
-    while (1) {
+    UART1_BRR1 = 0x0D;
+    UART1_BRR2 = 0x00;
+    UART1_CR2 = 0x0D;
+
+    while(1) {
         PB_ODR ^= (1 << LED_PIN);
-        delay_ms(1000);
+        UART1_DR = *ptr++;
+        delay_ms(500);
     }
 }

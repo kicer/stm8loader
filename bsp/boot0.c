@@ -16,6 +16,8 @@ __asm
         addw X, #3      ; [1C 00 03]
         cpw X, (1,SP)   ; [13 01]
         jrne _exit      ; [26 01]
+        // save SP to 0x0000
+        ldw 0x0000, Y
         // jump to ram
         ret             ; [81]
     _exit:

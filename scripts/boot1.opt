@@ -1,9 +1,9 @@
 ;; M Code
-;;    option   O0 O1 N1 O2 N2 O3 N3 O4     N4 O5 N5
-;;      4800   00 00 ff 00 ff 00 ff 00     ff 00 ff -- -- -- -- --
-;; 03D0|4810   -- -- 00 03 d5 a6 0d c7     52 32 c7 52 35 c7 52 31
-;; 03E0|4820   a6 80 5f 5c 27 14 72 0b     52 30 f8 3b 52 31 4c 26
-;; 03F0|4830   f1 96 5c 5c 5c 13 01 26     e7 81 72 cc 48 3e 80 04
+;;    option   O0 O1 N1 O2 N2 O3 N3 O4  N4 O5 N5
+;;      4800   00 00 ff 00 ff 00 ff 00  ff 00 ff -- -- 00 03 d0
+;; 03D0|4810   a6 0d c7 52 32 c7 52 35  c7 52 31 a6 80 5f 5c 27
+;; 03E0|4820   17 72 0b 52 30 f8 3b 52  31 4c 26 f1 c7 52 31 96
+;; 03F0|4830   5c 5c 5c 13 01 26 e4 81  fe 94 72 cc 48 3e 80 04
 
 ;; UART1 register address definitions
 UART1_SR    = 0x5230   ; Status register
@@ -20,7 +20,7 @@ _boot_start_data:
     ;; Termination flag (copy process stops when encountering 0)
     .db     0x00       ; [00] Termination byte
 
-    ;; [03 D5] RAM address for ret execution
+    ;; [03 D0] RAM address for ret execution
     .db     (RAM_SIZE-(_boot_go_adr-_boot_start+2))>>8
     .db     (RAM_SIZE-(_boot_go_adr-_boot_start+2))&0xFF
 
@@ -50,6 +50,9 @@ _boot_rx_wait:
     inc     A               ; [4C] Increment A, used as receive counter
     jrne    _boot_rx_byte ; [26 F1] If A is not 0, continue receiving
 
+    ;; Receive 128 bytes success
+    ld      UART1_DR, A     ; [C7 52 31] Send Ack 0x00
+
     ;; Check address
     ldw     X, SP           ; [96]
     incw    X               ; [5c]
@@ -62,6 +65,8 @@ _boot_rx_wait:
 
 _boot_exit:
     ;; Timeout exit, jump to user program
+    ldw     X, (X)          ; [FE]
+    ldw     SP, X           ; [94]
     jp      [_boot_go_adr]  ; [72 CC 48 3E] Indirect jump
 
 _boot_go_adr:
