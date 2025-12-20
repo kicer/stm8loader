@@ -60,8 +60,8 @@ temp_var3        = 79  ; 临时变量
 ;; Bootloader body (load in ram ?-0x03D0)
     .area   RAM_BOOT
 
-    .db     (BOOT2_SP-(_end-_start)+1)>>8
-    .db     (BOOT2_SP-(_end-_start)+1)&0xFF
+    .db     (BOOT2_SP-(_end-_start)+3)>>8
+    .db     (BOOT2_SP-(_end-_start)+3)&0xFF
 
 _start:
     ; 配置UART1: 128000波特率, 8N1, 启用TX/RX
@@ -228,6 +228,7 @@ send_ack_state_response:
     addw X, #4
     ld A, #1
     ld (X), A
+    ld tx_data_length, A
 
     ; set data
     incw X

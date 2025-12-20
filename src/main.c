@@ -14,6 +14,7 @@ void main(void) {
     UART1_BRR2 = 0x00;
     UART1_CR2 = 0x0C;
 
+#if 0
     while(1) {
         volatile uint8_t *ptr = (volatile uint8_t *)0x0230;
         delay_ms(2000);
@@ -26,10 +27,11 @@ void main(void) {
             PB_ODR ^= (1 << LED_PIN);
         }
     }
-
+#else
     while(1) {
         PB_ODR ^= (1 << LED_PIN);
         UART1_DR = PB_ODR;
         delay_ms(500);
     }
+#endif
 }

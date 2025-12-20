@@ -64,16 +64,7 @@ class STM8Bootloader:
         if level == "DEBUG" and not self.verbose:
             return
             
-        prefix = f"[{level}]"
-        if level == "DEBUG":
-            prefix = f"[DEBUG] {message}"
-        elif level == "ERROR":
-            prefix = f"[ERROR] {message}"
-        elif level == "WARNING":
-            prefix = f"[WARNING] {message}"
-        else:
-            prefix = f"[INFO] {message}"
-            
+        prefix = f"[{level}] {message}"
         print(prefix)
     
     def open(self, baudrate: int = BOOT2_BAUDRATE):
@@ -85,7 +76,7 @@ class STM8Bootloader:
                 bytesize=serial.EIGHTBITS,
                 parity=serial.PARITY_NONE,
                 stopbits=serial.STOPBITS_ONE,
-                timeout=0.2  # 200ms超时
+                timeout=0  # 设置为0，非阻塞模式
             )
             self.log(f"串口 {self.port} 已打开，波特率 {baudrate}", "DEBUG")
     
@@ -161,20 +152,17 @@ class STM8Bootloader:
         
         self.log("等待boot1握手信号(0x00 0x0D)...", "DEBUG")
         
-        # 设置非阻塞读取
-        self.serial.timeout = 0  # 非阻塞
+        # 清除输入缓冲区
+        self.serial.reset_input_buffer()
         
         try:
-            # 清除输入缓冲区
-            self.serial.reset_input_buffer()
-            
             # 持续读取，最多等待200ms
             start_time = time.time()
             buffer = bytearray()
             
             while time.time() - start_time < 0.2:  # 200ms超时
                 # 读取所有可用数据
-                while self.serial.in_waiting > 0:
+                if self.serial.in_waiting > 0:
                     data = self.serial.read(self.serial.in_waiting)
                     buffer.extend(data)
                     
@@ -189,6 +177,7 @@ class STM8Bootloader:
                 time.sleep(0.001)  # 1ms
             
             # 超时，未收到信号
+            self.log("200ms内未收到boot1信号", "DEBUG")
             return False
             
         except Exception as e:
@@ -202,17 +191,16 @@ class STM8Bootloader:
         Returns:
             True: 成功, False: 用户中断或失败
         """
-        self.log("等待boot1握手信号...", "INFO")
-        self.log("请手动按下MCU复位键", "INFO")
+        self.log("等待boot1握手信号，请手动按下MCU复位键", "INFO")
         self.log("按 Ctrl+C 退出程序", "INFO")
         
-        # 设置非阻塞读取
-        self.serial.timeout = 0
+        # 清除输入缓冲区
+        self.serial.reset_input_buffer()
         
         try:
             while True:
                 # 检查是否有数据
-                while self.serial.in_waiting > 0:
+                if self.serial.in_waiting > 0:
                     data = self.serial.read(self.serial.in_waiting)
                     
                     # 简单检查：如果数据包含0x00 0x0D
@@ -347,8 +335,31 @@ class STM8Bootloader:
         
         return cmd, addr, data
     
+    def read_with_timeout(self, size: int, timeout: float) -> bytes:
+        """
+        读取指定数量的字节，带超时
+        
+        Args:
+            size: 要读取的字节数
+            timeout: 超时时间（秒）
+            
+        Returns:
+            读取到的数据
+        """
+        data = bytearray()
+        start_time = time.time()
+        
+        while len(data) < size and time.time() - start_time < timeout:
+            if self.serial.in_waiting > 0:
+                chunk = self.serial.read(min(self.serial.in_waiting, size - len(data)))
+                data.extend(chunk)
+            else:
+                time.sleep(0.001)  # 短暂休眠，避免CPU占用过高
+        
+        return bytes(data)
+    
     def send_command(self, cmd: int, addr: int, data: bytes = b'', 
-                    wait_response: bool = True, timeout: float = 0.2) -> Optional[Tuple[int, int, bytes]]:
+                    wait_response: bool = True, timeout: float = 0.5) -> Optional[Tuple[int, int, bytes]]:
         """
         发送命令并接收响应
         
@@ -377,8 +388,7 @@ class STM8Bootloader:
             return None
         
         # 等待响应
-        self.serial.timeout = timeout
-        response = self.serial.read(FRAME_SIZE)
+        response = self.read_with_timeout(FRAME_SIZE, timeout)
         
         if not response:
             raise STM8BootloaderError("未收到响应")
@@ -394,7 +404,8 @@ class STM8Bootloader:
         """
         try:
             self.log("检查是否在boot2中...", "DEBUG")
-            response = self.send_command(CMD_READ, HANDSHAKE_ADDR, b'', timeout=0.5)
+            # 发送读取命令，数据字段为要读取的长度（8字节）
+            response = self.send_command(CMD_READ, HANDSHAKE_ADDR, b'\x08', timeout=0.5)
             
             if response:
                 cmd, addr, data = response
@@ -601,8 +612,8 @@ class STM8Bootloader:
                 raise STM8BootloaderError("信息数据长度不足")
             
             # 解析握手数据
-            boot0_addr = (data[1] << 8) | data[0]  # 注意字节序
-            main_addr = (data[7] << 8) | data[6]    # 注意字节序
+            boot0_addr = (data[2] << 8) | data[3]  # 注意字节序
+            main_addr = (data[6] << 8) | data[7]    # 注意字节序
             
             info = {
                 'boot0_address': boot0_addr,
