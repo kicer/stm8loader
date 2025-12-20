@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-STM8 Bootloader 交互工具
-支持自动检测并上传boot2程序，以及读写内存、执行等操作
+STM8 Bootloader interaction tool
+Supports automatic detection and upload of boot2 program, as well as read/write memory, execute, etc.
 """
 
 import sys
@@ -13,62 +13,62 @@ import serial
 from serial.tools import list_ports
 from typing import Optional, List, Tuple, Union, BinaryIO
 
-# ============ 协议常量定义 ============
-CMD_READ = 0xF1      # 读内存命令
-CMD_WRITE = 0xF2     # 写内存命令
-CMD_GO = 0xF3        # 跳转执行命令
+# ============ Protocol Constants Definition ============
+CMD_READ = 0xF1      # Read memory command
+CMD_WRITE = 0xF2     # Write memory command
+CMD_GO = 0xF3        # Jump execution command
 
-CMD_HEADER = 0x5A    # 发送给MCU的帧头
-ACK_HEADER = 0xA5    # MCU应答的帧头
+CMD_HEADER = 0x5A    # Frame header sent to MCU
+ACK_HEADER = 0xA5    # MCU response frame header
 
-HANDSHAKE_ADDR = 0x8000  # 握手检测地址
-HANDSHAKE_SIZE = 8       # 握手数据长度
+HANDSHAKE_ADDR = 0x8000  # Handshake detection address
+HANDSHAKE_SIZE = 8       # Handshake data length
 
-BOOT1_BAUDRATE = 9600    # boot1波特率
-BOOT2_BAUDRATE = 128000  # boot2波特率
+BOOT1_BAUDRATE = 9600    # boot1 baud rate
+BOOT2_BAUDRATE = 128000  # boot2 baud rate
 
-FRAME_SIZE = 70          # 命令帧总大小
-MAX_DATA_SIZE = 64       # 单次最大数据长度
+FRAME_SIZE = 70          # Command frame total size
+MAX_DATA_SIZE = 64       # Maximum single data length
 
 class STM8BootloaderError(Exception):
-    """STM8 Bootloader异常基类"""
+    """STM8 Bootloader base exception class"""
     pass
 
 class STM8Bootloader:
-    def __init__(self, port: str, verbose: bool = False, reset_pin: str = 'rts'):
+    def __init__(self, port: str, verbose: bool = False, reset_pin: str = 'rts+dtr'):
         """
-        初始化STM8 Bootloader
-        
+        Initialize STM8 Bootloader
+
         Args:
-            port: 串口号
-            verbose: 是否显示详细调试信息
-            reset_pin: 复位引脚类型 ('rts', 'dtr' 或 'none')
+            port: Serial port name
+            verbose: Whether to display detailed debug information
+            reset_pin: Reset pin type ('rts+dtr', 'rts', 'dtr' or 'none')
         """
         self.port = port
         self.verbose = verbose
         self.reset_pin = reset_pin.lower()
-        if self.reset_pin not in ['rts', 'dtr', 'none']:
-            raise ValueError("reset_pin 必须是 'rts', 'dtr' 或 'none'")
+        if self.reset_pin not in ['rts+dtr', 'rts', 'dtr', 'none']:
+            raise ValueError("reset_pin must be 'rts+dtr', 'rts', 'dtr' or 'none'")
         self.serial = None
         self.in_boot2 = False
         self.script_dir = os.path.dirname(os.path.abspath(__file__))
-        
+
     def log(self, message: str, level: str = "INFO"):
         """
-        打印日志信息
-        
+        Print log information
+
         Args:
-            message: 日志消息
-            level: 日志级别 (DEBUG, INFO, ERROR, WARNING)
+            message: Log message
+            level: Log level (DEBUG, INFO, ERROR, WARNING)
         """
         if level == "DEBUG" and not self.verbose:
             return
-            
+
         prefix = f"[{level}] {message}"
         print(prefix)
-    
+
     def open(self, baudrate: int = BOOT2_BAUDRATE):
-        """打开串口连接"""
+        """Open serial connection"""
         if self.serial is None or not self.serial.is_open:
             self.serial = serial.Serial(
                 port=self.port,
@@ -76,923 +76,949 @@ class STM8Bootloader:
                 bytesize=serial.EIGHTBITS,
                 parity=serial.PARITY_NONE,
                 stopbits=serial.STOPBITS_ONE,
-                timeout=0  # 设置为0，非阻塞模式
+                timeout=0  # Set to 0, non-blocking mode
             )
-            self.log(f"串口 {self.port} 已打开，波特率 {baudrate}", "DEBUG")
-    
+            self.log(f"Serial port {self.port} opened, baud rate {baudrate}", "DEBUG")
+
     def close(self):
-        """关闭串口连接"""
+        """Close serial connection"""
         if self.serial and self.serial.is_open:
             self.serial.close()
-            self.log("串口已关闭", "DEBUG")
-    
+            self.log("Serial port closed", "DEBUG")
+
     def reset_mcu(self) -> bool:
         """
-        通过RTS或DTR复位MCU
-        
+        Reset MCU via RTS and/or DTR
+
         Returns:
-            True: 复位成功, False: 复位失败或未配置
+            True: Reset successful, False: Reset failed or not configured
         """
         if self.reset_pin == 'none':
-            self.log("未配置自动复位引脚，跳过自动复位", "INFO")
+            self.log("No automatic reset pin configured, skipping auto reset", "INFO")
             return True
-            
+
         if not self.serial or not self.serial.is_open:
             return False
-        
-        self.log(f"使用 {self.reset_pin.upper()} 引脚复位MCU...", "DEBUG")
-        
+
+        self.log(f"Using {self.reset_pin.upper()} pin(s) to reset MCU...", "DEBUG")
+
         try:
-            if self.reset_pin == 'rts':
-                # RTS复位序列: True -> False -> True -> 等待150ms -> False
+            # Reset sequence: True -> False -> True -> wait 150ms -> False
+            # Apply to selected pin(s)
+            if 'rts' in self.reset_pin:
                 self.serial.setRTS(True)
-                time.sleep(0.01)  # 等待10ms稳定
-                
+            if 'dtr' in self.reset_pin:
+                self.serial.setDTR(True)
+            time.sleep(0.01)  # Wait 10ms for stability
+
+            if 'rts' in self.reset_pin:
                 self.serial.setRTS(False)
-                time.sleep(0.01)  # 等待10ms稳定
-                
+            if 'dtr' in self.reset_pin:
+                self.serial.setDTR(False)
+            time.sleep(0.01)  # Wait 10ms for stability
+
+            if 'rts' in self.reset_pin:
                 self.serial.setRTS(True)
-                time.sleep(0.15)  # 等待150ms，让MCU复位
-                
+            if 'dtr' in self.reset_pin:
+                self.serial.setDTR(True)
+            time.sleep(0.15)  # Wait 150ms for MCU reset
+
+            if 'rts' in self.reset_pin:
                 self.serial.setRTS(False)
-            else:  # dtr
-                # DTR复位序列: True -> False -> True -> 等待150ms -> False
-                self.serial.setDTR(True)
-                time.sleep(0.01)  # 等待10ms稳定
-                
+            if 'dtr' in self.reset_pin:
                 self.serial.setDTR(False)
-                time.sleep(0.01)  # 等待10ms稳定
-                
-                self.serial.setDTR(True)
-                time.sleep(0.15)  # 等待150ms，让MCU复位
-                
-                self.serial.setDTR(False)
-            
-            # 等待MCU稳定
-            time.sleep(0.05)
-            self.log("MCU复位完成", "DEBUG")
+
+            self.log("MCU reset completed", "DEBUG")
             return True
-            
+
         except Exception as e:
-            self.log(f"复位失败: {e}", "ERROR")
+            self.log(f"Reset failed: {e}", "ERROR")
             return False
-    
+
     def wait_for_boot1_signal_and_send_boot2(self, bin_file: str) -> bool:
         """
-        等待boot1的握手信号 (0x00 0x0D)，收到后立即发送boot2.bin
-        
+        Wait for boot1 handshake signal (0x00 0x0D), send boot2.bin immediately upon receipt
+
         Args:
-            bin_file: boot2二进制文件路径
-            
+            bin_file: boot2 binary file path
+
         Returns:
-            True: 成功, False: 失败
+            True: Success, False: Failure
         """
         if not self.serial or not self.serial.is_open:
             return False
-        
-        self.log("等待boot1握手信号(0x00 0x0D)...", "DEBUG")
-        
-        # 清除输入缓冲区
+
+        self.log("Waiting for boot1 handshake signal (0x00 0x0D)...", "DEBUG")
+
+        # Clear input buffer
         self.serial.reset_input_buffer()
-        
+
         try:
-            # 持续读取，最多等待200ms
+            # Continuous reading, wait up to 250ms
             start_time = time.time()
             buffer = bytearray()
-            
-            while time.time() - start_time < 0.2:  # 200ms超时
-                # 读取所有可用数据
+
+            while time.time() - start_time < 0.25:  # 250ms timeout
+                # Read all available data
                 if self.serial.in_waiting > 0:
                     data = self.serial.read(self.serial.in_waiting)
                     buffer.extend(data)
-                    
-                    # 检查是否有0x00 0x0D
+
+                    # Check for 0x00 0x0D
                     if len(buffer) >= 2 and buffer[-2:] == b'\x00\x0d':
-                        self.log("收到boot1握手信号: 0x00 0x0D", "DEBUG")
-                        
-                        # 立即发送boot2.bin
+                        self.log("Received boot1 handshake signal: 0x00 0x0D", "DEBUG")
+
+                        # Immediately send boot2.bin
                         return self.send_boot2_binary(bin_file)
-                
-                # 短暂延时，避免CPU占用过高
+
+                # Short delay to avoid high CPU usage
                 time.sleep(0.001)  # 1ms
-            
-            # 超时，未收到信号
-            self.log("200ms内未收到boot1信号", "DEBUG")
+
+            # Timeout, no signal received
+            self.log("No boot1 signal received within 200ms", "DEBUG")
             return False
-            
+
         except Exception as e:
-            self.log(f"等待boot1信号时出错: {e}", "ERROR")
+            self.log(f"Error waiting for boot1 signal: {e}", "ERROR")
             return False
-    
+
     def wait_for_boot1_signal_blocking(self, bin_file: str) -> bool:
         """
-        阻塞等待boot1的握手信号，直到收到并发送boot2或用户中断
-        
+        Blocking wait for boot1 handshake signal until received and send boot2 or user interrupt
+
         Returns:
-            True: 成功, False: 用户中断或失败
+            True: Success, False: User interrupt or failure
         """
-        self.log("等待boot1握手信号，请手动按下MCU复位键", "INFO")
-        self.log("按 Ctrl+C 退出程序", "INFO")
-        
-        # 清除输入缓冲区
+        self.log("Waiting for boot1 handshake signal, please manually press MCU reset button", "INFO")
+        self.log("Press Ctrl+C to exit program", "INFO")
+
+        # Clear input buffer
         self.serial.reset_input_buffer()
-        
+
         try:
             while True:
-                # 检查是否有数据
+                # Check if there's data
                 if self.serial.in_waiting > 0:
                     data = self.serial.read(self.serial.in_waiting)
-                    
-                    # 简单检查：如果数据包含0x00 0x0D
+
+                    # Simple check: if data contains 0x00 0x0D
                     if b'\x00\x0d' in data:
-                        self.log("收到boot1握手信号: 0x00 0x0D", "INFO")
-                        
-                        # 立即发送boot2.bin
+                        self.log("Received boot1 handshake signal: 0x00 0x0D", "INFO")
+
+                        # Immediately send boot2.bin
                         return self.send_boot2_binary(bin_file)
-                
-                # 短暂延时
+
+                # Short delay
                 time.sleep(0.001)
-                
+
         except KeyboardInterrupt:
-            self.log("用户中断等待", "INFO")
+            self.log("User interrupted wait", "INFO")
             return False
         except Exception as e:
-            self.log(f"等待时出错: {e}", "ERROR")
+            self.log(f"Error during wait: {e}", "ERROR")
             return False
-    
+
     def send_boot2_binary(self, bin_file: str) -> bool:
         """
-        发送boot2.bin文件到MCU（字节倒序）
-        
+        Send boot2.bin file to MCU (byte reversed)
+
         Args:
-            bin_file: boot2二进制文件路径
-            
+            bin_file: boot2 binary file path
+
         Returns:
-            True: 发送成功, False: 发送失败
+            True: Send successful, False: Send failed
         """
         try:
-            # 如果文件路径不是绝对路径，则相对于脚本目录
+            # If file path is not absolute, make it relative to script directory
             if not os.path.isabs(bin_file):
                 bin_file = os.path.join(self.script_dir, bin_file)
-            
+
             with open(bin_file, 'rb') as f:
                 data = f.read()
-            
+
             if not data:
-                self.log(f"文件 {bin_file} 为空", "ERROR")
+                self.log(f"File {bin_file} is empty", "ERROR")
                 return False
-            
-            self.log(f"读取到 {len(data)} 字节的boot2程序", "DEBUG")
-            
-            # 字节倒序
+
+            self.log(f"Read {len(data)} bytes of boot2 program", "DEBUG")
+
+            # Byte reversal
             reversed_data = bytes(reversed(data))
-            
-            # 发送数据（不添加校验和）
+
+            # Send data (no checksum added)
             self.serial.write(reversed_data)
             self.serial.flush()
 
-            self.log(f"已发送 {len(data)} 字节 (倒序)", "DEBUG")
+            self.log(f"Sent {len(data)} bytes (reversed)", "DEBUG")
             return True
-            
+
         except FileNotFoundError:
-            self.log(f"文件不存在: {bin_file}", "ERROR")
+            self.log(f"File does not exist: {bin_file}", "ERROR")
             return False
         except Exception as e:
-            self.log(f"发送boot2.bin时出错: {e}", "ERROR")
+            self.log(f"Error sending boot2.bin: {e}", "ERROR")
             return False
-    
+
     def calculate_checksum(self, data: bytes) -> int:
-        """计算XOR校验和"""
+        """Calculate XOR checksum"""
         checksum = 0
         for byte in data:
             checksum ^= byte
         return checksum
-    
+
     def create_command_frame(self, cmd: int, addr: int, data: bytes = b'') -> bytes:
         """
-        创建命令帧
-        
+        Create command frame
+
         Args:
-            cmd: 命令类型
-            addr: 目标地址
-            data: 数据内容
-            
+            cmd: Command type
+            addr: Target address
+            data: Data content
+
         Returns:
-            完整的命令帧
+            Complete command frame
         """
         if len(data) > MAX_DATA_SIZE:
-            raise STM8BootloaderError(f"数据长度超过{MAX_DATA_SIZE}字节限制")
-        
-        # 构建帧
+            raise STM8BootloaderError(f"Data length exceeds {MAX_DATA_SIZE} byte limit")
+
+        # Build frame
         frame = bytearray(FRAME_SIZE)
-        frame[0] = CMD_HEADER                    # 帧头
-        frame[1] = cmd                          # 命令类型
-        frame[2] = (addr >> 8) & 0xFF          # 地址高字节
-        frame[3] = addr & 0xFF                  # 地址低字节
-        frame[4] = len(data)                    # 数据长度
-        
-        # 填充数据
+        frame[0] = CMD_HEADER                    # Frame header
+        frame[1] = cmd                          # Command type
+        frame[2] = (addr >> 8) & 0xFF          # Address high byte
+        frame[3] = addr & 0xFF                  # Address low byte
+        frame[4] = len(data)                    # Data length
+
+        # Fill data
         if data:
             frame[5:5+len(data)] = data
-        
-        # 计算校验和（从帧头到数据结束）
+
+        # Calculate checksum (from frame header to data end)
         checksum_data = frame[:5+len(data)]
         frame[5+len(data)] = self.calculate_checksum(checksum_data)
-        
+
         return bytes(frame[:5+len(data)+1])
-    
+
     def parse_response_frame(self, frame: bytes) -> Tuple[int, int, bytes]:
         """
-        解析应答帧
-        
+        Parse response frame
+
         Args:
-            frame: 接收到的帧数据
-            
+            frame: Received frame data
+
         Returns:
-            (命令类型, 地址, 数据)
+            (command type, address, data)
         """
         if len(frame) < 6:
-            raise STM8BootloaderError("应答帧长度不足")
-        
+            raise STM8BootloaderError("Response frame length insufficient")
+
         if frame[0] != ACK_HEADER:
-            raise STM8BootloaderError(f"无效的应答帧头: 0x{frame[0]:02X}")
-        
-        # 验证校验和
+            raise STM8BootloaderError(f"Invalid response frame header: 0x{frame[0]:02X}")
+
+        # Verify checksum
         received_checksum = frame[-1]
         calculated_checksum = self.calculate_checksum(frame[:-1])
-        
+
         if received_checksum != calculated_checksum:
-            raise STM8BootloaderError(f"校验和错误: 收到0x{received_checksum:02X}, 计算0x{calculated_checksum:02X}")
-        
+            raise STM8BootloaderError(f"Checksum error: received 0x{received_checksum:02X}, calculated 0x{calculated_checksum:02X}")
+
         cmd = frame[1]
         addr = (frame[2] << 8) | frame[3]
         data_len = frame[4]
-        
+
         if len(frame) < 5 + data_len + 1:
-            raise STM8BootloaderError("应答帧数据长度不匹配")
-        
+            raise STM8BootloaderError("Response frame data length mismatch")
+
         data = frame[5:5+data_len]
-        
+
         return cmd, addr, data
-    
+
     def read_with_timeout(self, size: int, timeout: float) -> bytes:
         """
-        读取指定数量的字节，带超时
-        
+        Read specified number of bytes with timeout
+
         Args:
-            size: 要读取的字节数
-            timeout: 超时时间（秒）
-            
+            size: Number of bytes to read
+            timeout: Timeout time (seconds)
+
         Returns:
-            读取到的数据
+            Read data
         """
         data = bytearray()
         start_time = time.time()
-        
+
         while len(data) < size and time.time() - start_time < timeout:
             if self.serial.in_waiting > 0:
                 chunk = self.serial.read(min(self.serial.in_waiting, size - len(data)))
                 data.extend(chunk)
             else:
-                time.sleep(0.001)  # 短暂休眠，避免CPU占用过高
-        
+                time.sleep(0.001)  # Short sleep to avoid high CPU usage
+
         return bytes(data)
-    
+
     def send_command(self, cmd: int, addr: int, data: bytes = b'', 
                     wait_response: bool = True, timeout: float = 0.5) -> Optional[Tuple[int, int, bytes]]:
         """
-        发送命令并接收响应
-        
+        Send command and receive response
+
         Args:
-            cmd: 命令类型
-            addr: 目标地址
-            data: 数据内容
-            wait_response: 是否等待响应
-            timeout: 超时时间
-            
+            cmd: Command type
+            addr: Target address
+            data: Data content
+            wait_response: Whether to wait for response
+            timeout: Timeout time
+
         Returns:
-            解析后的响应帧，或None
+            Parsed response frame, or None
         """
         if not self.serial or not self.serial.is_open:
-            raise STM8BootloaderError("串口未打开")
-        
-        # 清除输入缓冲区
+            raise STM8BootloaderError("Serial port not open")
+
+        # Clear input buffer
         self.serial.reset_input_buffer()
-        
-        # 创建并发送命令帧
+
+        # Create and send command frame
         frame = self.create_command_frame(cmd, addr, data)
         self.serial.write(frame)
         self.serial.flush()
-        
+
         if not wait_response:
             return None
-        
-        # 等待响应
+
+        # Wait for response
         response = self.read_with_timeout(FRAME_SIZE, timeout)
-        
+
         if not response:
-            raise STM8BootloaderError("未收到响应")
-        
+            raise STM8BootloaderError("No response received")
+
         return self.parse_response_frame(response)
-    
+
     def check_boot2(self) -> bool:
         """
-        检查是否已经在boot2中
-        
+        Check if already in boot2
+
         Returns:
-            True: 在boot2中, False: 不在boot2中
+            True: In boot2, False: Not in boot2
         """
         try:
-            self.log("检查是否在boot2中...", "DEBUG")
-            # 发送读取命令，数据字段为要读取的长度（8字节）
+            self.log("Checking if in boot2...", "DEBUG")
+            # Send read command, data field is length to read (8 bytes)
             response = self.send_command(CMD_READ, HANDSHAKE_ADDR, b'\x08', timeout=0.5)
-            
+
             if response:
                 cmd, addr, data = response
                 if cmd == CMD_READ and addr == HANDSHAKE_ADDR and len(data) >= HANDSHAKE_SIZE:
                     self.in_boot2 = True
-                    self.log("已在boot2中", "DEBUG")
+                    self.log("Already in boot2", "DEBUG")
                     return True
-                    
+
         except STM8BootloaderError as e:
-            self.log(f"不在boot2中: {e}", "DEBUG")
+            self.log(f"Not in boot2: {e}", "DEBUG")
         except Exception as e:
-            self.log(f"检查boot2时出错: {e}", "DEBUG")
-        
+            self.log(f"Error checking boot2: {e}", "DEBUG")
+
         self.in_boot2 = False
         return False
-    
+
     def upload_boot2(self, boot2_file: str = "boot2.bin") -> bool:
         """
-        上传boot2程序到MCU
-        
+        Upload boot2 program to MCU
+
         Args:
-            boot2_file: boot2二进制文件路径
-            
+            boot2_file: boot2 binary file path
+
         Returns:
-            True: 上传成功, False: 上传失败
+            True: Upload successful, False: Upload failed
         """
-        self.log("开始上传boot2程序...", "INFO")
-        
-        # 1. 切换到9600bps
+
+        # 1. Switch to 9600 bps
         self.close()
         self.open(baudrate=BOOT1_BAUDRATE)
-        time.sleep(0.05)  # 等待串口稳定
-        
-        # 2. 尝试复位MCU（如果配置了复位引脚）
+        time.sleep(0.05)  # Wait for serial port stabilization
+
+        # 2. Try to reset MCU (if reset pin configured)
         if self.reset_pin != 'none':
             if self.reset_mcu():
-                self.log("自动复位MCU成功", "INFO")
+                self.log("Auto MCU reset successful", "INFO")
             else:
-                self.log("自动复位失败，继续尝试...", "WARNING")
+                self.log("Auto reset failed, continuing...", "WARNING")
         else:
-            self.log("未配置自动复位，等待手动复位...", "INFO")
-        
-        # 3. 尝试自动等待并发送boot2（200ms窗口期）
+            self.log("No auto reset configured, waiting for manual reset...", "INFO")
+
+        # 3. Try auto wait and send boot2 (200ms window)
         if self.reset_pin != 'none':
-            self.log("尝试在200ms窗口期内接收boot1信号...", "INFO")
+            self.log("Attempting to receive boot1 signal within 200ms window...", "INFO")
             if self.wait_for_boot1_signal_and_send_boot2(boot2_file):
-                self.log("boot1信号接收成功，已发送boot2程序", "INFO")
+                self.log("Boot1 signal received successfully, boot2 program sent", "INFO")
             else:
-                self.log("200ms窗口期内未收到boot1信号，请手动复位", "WARNING")
-                
-                # 手动复位等待
+                self.log("No boot1 signal received within 200ms window, please manually reset", "WARNING")
+
+                # Manual reset wait
                 if not self.wait_for_boot1_signal_blocking(boot2_file):
-                    self.log("等待被用户中断", "ERROR")
+                    self.log("Wait interrupted by user", "ERROR")
                     return False
         else:
-            # 直接等待手动复位
+            # Direct wait for manual reset
             if not self.wait_for_boot1_signal_blocking(boot2_file):
-                self.log("等待被用户中断", "ERROR")
+                self.log("Wait interrupted by user", "ERROR")
                 return False
-        
-        # 4. 等待1s
-        time.sleep(1)
-        
-        # 5. 切换到128000bps并检查是否在boot2中
-        self.log("验证boot2程序...", "INFO")
+
+        # 4. Wait 1 second
+        time.sleep(1.0)
+
+        # 5. Switch to 128000 bps and check if in boot2
+        self.log("Verifying boot2 program...", "INFO")
         self.close()
         self.open(baudrate=BOOT2_BAUDRATE)
-        time.sleep(0.05)  # 额外等待50ms稳定
-        
+        time.sleep(0.05)  # Extra 50ms wait for stabilization
+
         if self.check_boot2():
-            self.log("boot2上传成功", "INFO")
+            self.log("boot2 upload verification success", "INFO")
             return True
         else:
-            self.log("boot2上传后验证失败", "ERROR")
+            self.log("boot2 upload verification failed", "ERROR")
             return False
-    
+
     def read_memory(self, addr: int, size: int) -> bytes:
         """
-        读取内存
-        
+        Read memory
+
         Args:
-            addr: 起始地址
-            size: 读取大小
-            
+            addr: Start address
+            size: Read size
+
         Returns:
-            读取到的数据
+            Read data
         """
         if not self.in_boot2:
-            raise STM8BootloaderError("不在boot2模式中")
-        
+            raise STM8BootloaderError("Not in boot2 mode")
+
         result = bytearray()
         remaining = size
         current_addr = addr
-        
+
         while remaining > 0:
             chunk_size = min(remaining, MAX_DATA_SIZE)
-            
+
             try:
-                # 发送读取命令，数据字段为要读取的长度
+                # Send read command, data field is length to read
                 response = self.send_command(CMD_READ, current_addr, 
                                            struct.pack('B', chunk_size))
-                
+
                 if not response:
-                    raise STM8BootloaderError(f"读取地址 0x{current_addr:04X} 失败")
-                
+                    raise STM8BootloaderError(f"Read address 0x{current_addr:04X} failed")
+
                 cmd, resp_addr, data = response
-                
+
                 if cmd != CMD_READ or resp_addr != current_addr:
-                    raise STM8BootloaderError(f"读取响应不匹配")
-                
+                    raise STM8BootloaderError(f"Read response mismatch")
+
                 if len(data) != chunk_size:
-                    raise STM8BootloaderError(f"读取长度不匹配: 期望{chunk_size}, 实际{len(data)}")
-                
+                    raise STM8BootloaderError(f"Read length mismatch: expected {chunk_size}, actual {len(data)}")
+
                 result.extend(data)
                 remaining -= chunk_size
                 current_addr += chunk_size
-                
-                self.log(f"已读取 0x{current_addr-chunk_size:04X} - 0x{current_addr-1:04X} ({chunk_size}字节)", "DEBUG")
-                
+
+                self.log(f"Read 0x{current_addr-chunk_size:04X} - 0x{current_addr-1:04X} ({chunk_size} bytes)", "DEBUG")
+
             except Exception as e:
-                raise STM8BootloaderError(f"读取过程中出错: {e}")
-        
+                raise STM8BootloaderError(f"Error during read: {e}")
+
         return bytes(result)
-    
+
     def write_memory(self, addr: int, data: bytes) -> bool:
         """
-        写入内存
-        
+        Write memory
+
         Args:
-            addr: 起始地址
-            data: 要写入的数据
-            
+            addr: Start address
+            data: Data to write
+
         Returns:
-            True: 写入成功, False: 写入失败
+            True: Write successful, False: Write failed
         """
         if not self.in_boot2:
-            raise STM8BootloaderError("不在boot2模式中")
-        
+            raise STM8BootloaderError("Not in boot2 mode")
+
         remaining = len(data)
         current_addr = addr
         offset = 0
-        
+
         while remaining > 0:
             chunk_size = min(remaining, MAX_DATA_SIZE)
             chunk_data = data[offset:offset+chunk_size]
-            
+
             try:
                 response = self.send_command(CMD_WRITE, current_addr, chunk_data)
-                
+
                 if not response:
-                    raise STM8BootloaderError(f"写入地址 0x{current_addr:04X} 失败")
-                
+                    raise STM8BootloaderError(f"Write address 0x{current_addr:04X} failed")
+
                 cmd, resp_addr, resp_data = response
-                
+
                 if cmd != CMD_WRITE or resp_addr != current_addr:
-                    raise STM8BootloaderError(f"写入响应不匹配")
-                
-                self.log(f"已写入 0x{current_addr:04X} - 0x{current_addr+chunk_size-1:04X} ({chunk_size}字节)", "DEBUG")
-                
+                    raise STM8BootloaderError(f"Write response mismatch")
+
+                self.log(f"Written 0x{current_addr:04X} - 0x{current_addr+chunk_size-1:04X} ({chunk_size} bytes)", "DEBUG")
+
                 remaining -= chunk_size
                 current_addr += chunk_size
                 offset += chunk_size
-                
+
             except Exception as e:
-                raise STM8BootloaderError(f"写入过程中出错: {e}")
-        
+                raise STM8BootloaderError(f"Error during write: {e}")
+
         return True
-    
+
     def go_execute(self, addr: int) -> bool:
         """
-        跳转到指定地址执行
-        
+        Jump to specified address for execution
+
         Args:
-            addr: 执行地址
-            
+            addr: Execution address
+
         Returns:
-            True: 命令发送成功
+            True: Command sent successfully
         """
         if not self.in_boot2:
-            raise STM8BootloaderError("不在boot2模式中")
-        
+            raise STM8BootloaderError("Not in boot2 mode")
+
         try:
-            # go命令不需要等待响应
+            # go command doesn't need to wait for response
             self.send_command(CMD_GO, addr, b'', wait_response=False)
-            self.log(f"已发送跳转到 0x{addr:04X} 的命令", "DEBUG")
+            self.log(f"Sent jump to 0x{addr:04X} command", "DEBUG")
             return True
         except Exception as e:
-            raise STM8BootloaderError(f"发送跳转命令失败: {e}")
-    
+            raise STM8BootloaderError(f"Failed to send jump command: {e}")
+
     def get_info(self) -> dict:
         """
-        获取MCU信息
-        
+        Get MCU information
+
         Returns:
-            包含MCU信息的字典
+            Dictionary containing MCU information
         """
         if not self.in_boot2:
-            raise STM8BootloaderError("不在boot2模式中")
-        
+            raise STM8BootloaderError("Not in boot2 mode")
+
         try:
             data = self.read_memory(HANDSHAKE_ADDR, HANDSHAKE_SIZE)
-            
+
             if len(data) < HANDSHAKE_SIZE:
-                raise STM8BootloaderError("信息数据长度不足")
-            
-            # 解析握手数据
-            boot0_addr = (data[1] << 8) | data[0]  # 注意字节序
-            main_addr = (data[7] << 8) | data[6]    # 注意字节序
-            
+                raise STM8BootloaderError("Info data length insufficient")
+
+            # Correct address parsing
+            boot0_addr = (data[2] << 8) | data[3]  # Note byte order
+            main_addr = (data[6] << 8) | data[7]    # Note byte order
+
             info = {
                 'boot0_address': boot0_addr,
                 'main_program_address': main_addr,
                 'raw_data': data.hex(' '),
                 'in_boot2': self.in_boot2
             }
-            
+
             return info
-            
+
         except Exception as e:
-            raise STM8BootloaderError(f"获取信息失败: {e}")
-    
+            raise STM8BootloaderError(f"Failed to get info: {e}")
+
     @staticmethod
     def list_directory(path: str = "."):
-        """列出目录内容"""
+        """List directory contents"""
         try:
+            # If path is a file, only show file info
+            if os.path.isfile(path):
+                size = os.path.getsize(path)
+                # Format file size
+                if size < 1024:
+                    size_str = f"{size} B"
+                elif size < 1024 * 1024:
+                    size_str = f"{size/1024:.1f} KB"
+                else:
+                    size_str = f"{size/(1024*1024):.1f} MB"
+
+                print(f"File: {os.path.abspath(path)}")
+                print(f"Size: {size_str}")
+                return
+
+            # Path is a directory
             items = os.listdir(path)
-            
-            # 分离目录和文件
+
+            # Separate directories and files
             dirs = []
             files = []
-            
+
             for item in items:
                 full_path = os.path.join(path, item)
                 if os.path.isdir(full_path):
                     dirs.append(item + "/")
                 else:
                     files.append(item)
-            
-            # 排序
+
+            # Sort
             dirs.sort()
             files.sort()
-            
-            # 显示
-            print(f"目录: {os.path.abspath(path)}")
+
+            # Display
+            print(f"Directory: {os.path.abspath(path)}")
             print()
-            
-            if dirs or files:
-                # 显示目录
-                for d in dirs:
-                    print(f"  {d}")
-                
-                # 显示文件
-                for f in files:
-                    # 获取文件大小
-                    file_path = os.path.join(path, f)
-                    size = os.path.getsize(file_path)
-                    
-                    # 格式化文件大小
-                    if size < 1024:
-                        size_str = f"{size} B"
-                    elif size < 1024 * 1024:
-                        size_str = f"{size/1024:.1f} KB"
-                    else:
-                        size_str = f"{size/(1024*1024):.1f} MB"
-                    
-                    print(f"  {f:30} {size_str:>10}")
+
+            # Display items in columns (space separated)
+            all_items = dirs + files
+
+            # Display in multiple columns
+            if all_items:
+                # Calculate column width based on longest item name
+                max_len = max(len(item) for item in all_items) + 2
+                terminal_width = 80  # Default terminal width
+                items_per_line = max(1, terminal_width // max_len)
+
+                for i, item in enumerate(all_items):
+                    print(f"{item:<{max_len}}", end='')
+                    if (i + 1) % items_per_line == 0:
+                        print()
+
+                # Print newline if last line wasn't complete
+                if len(all_items) % items_per_line != 0:
+                    print()
             else:
-                print("  空目录")
-                
+                print("  Empty directory")
+
         except Exception as e:
-            print(f"[ERROR] 无法列出目录: {e}")
-    
+            print(f"[ERROR] Unable to list directory: {e}")
+
     def interactive_mode(self):
-        """交互模式"""
-        self.log("\n=== STM8 Bootloader 交互模式 ===", "INFO")
-        self.log("可用命令: read, write, go, info, ls, help, exit", "INFO")
-        self.log("输入 'help' 查看详细用法\n", "INFO")
-        
+        """Interactive mode"""
+        self.log("\n=== STM8 Bootloader Interactive Mode ===", "INFO")
+        self.log("Available commands: read, write, go, info, ls, reload, help, exit", "INFO")
+        self.log("Type 'help' for detailed usage\n", "INFO")
+
         while True:
             try:
                 cmd_input = input("stm8loader> ").strip()
                 if not cmd_input:
                     continue
-                
+
                 args = cmd_input.split()
                 cmd = args[0].lower()
-                
+
                 if cmd == 'exit' or cmd == 'quit':
-                    self.log("退出交互模式", "INFO")
+                    self.log("Exiting interactive mode", "INFO")
                     break
-                    
+
                 elif cmd == 'help':
                     self.show_help()
-                    
+
                 elif cmd == 'ls':
-                    # 列出目录
+                    # List directory
                     path = "." if len(args) < 2 else args[1]
                     self.list_directory(path)
-                    
+
+                elif cmd == 'reload':
+                    # Reset and upload boot2
+                    self.log("Executing reset and to upload boot2...", "INFO")
+                    if not self.upload_boot2():
+                        self.log("Reset upload failed", "ERROR")
+                    else:
+                        self.log("Reset upload successful", "INFO")
+
                 elif cmd == 'info':
                     try:
                         info = self.get_info()
-                        self.log("MCU信息:", "INFO")
-                        self.log(f"  Boot0启动地址: 0x{info['boot0_address']:04X}", "INFO")
-                        self.log(f"  主程序启动地址: 0x{info['main_program_address']:04X}", "INFO")
-                        self.log(f"  原始数据: {info['raw_data']}", "INFO")
-                        self.log(f"  当前模式: {'boot2' if info['in_boot2'] else '未知'}", "INFO")
+                        self.log("MCU Information:", "INFO")
+                        self.log(f"  Boot0 start address: 0x{info['boot0_address']:04X}", "INFO")
+                        self.log(f"  Main program start address: 0x{info['main_program_address']:04X}", "INFO")
+                        self.log(f"  Raw data: {info['raw_data']}", "INFO")
+                        self.log(f"  Current mode: {'boot2' if info['in_boot2'] else 'unknown'}", "INFO")
                     except Exception as e:
-                        self.log(f"错误: {e}", "ERROR")
-                        
+                        self.log(f"Error: {e}", "ERROR")
+
                 elif cmd == 'read':
                     if len(args) < 3:
-                        self.log("用法: read <addr> <size> [file]", "ERROR")
+                        self.log("Usage: read <addr> <size> [file]", "ERROR")
                         continue
-                    
+
                     try:
                         addr = int(args[1], 0)
                         size = int(args[2], 0)
-                        
+
                         data = self.read_memory(addr, size)
-                        
-                        # 显示数据
+
+                        # Display data
                         self.print_hex_dump(addr, data)
-                        
-                        # 保存到文件（如果指定）
+
+                        # Save to file (if specified)
                         if len(args) >= 4:
                             filename = args[3]
                             with open(filename, 'wb') as f:
                                 f.write(data)
-                            self.log(f"数据已保存到 {filename}", "INFO")
-                            
+                            self.log(f"Data saved to {filename}", "INFO")
+
                     except Exception as e:
-                        self.log(f"错误: {e}", "ERROR")
-                        
+                        self.log(f"Error: {e}", "ERROR")
+
                 elif cmd == 'write':
                     if len(args) < 3:
-                        self.log("用法: write <addr> <file/hex_string>", "ERROR")
-                        self.log("示例: write 0x8000 firmware.bin", "INFO")
-                        self.log("示例: write 0x8000 AABBCCDDEEFF", "INFO")
+                        self.log("Usage: write <addr> <file/hex_string>", "ERROR")
+                        self.log("Example: write 0x8000 firmware.bin", "INFO")
+                        self.log("Example: write 0x8000 AABBCCDDEEFF", "INFO")
                         continue
-                    
+
                     try:
                         addr = int(args[1], 0)
                         source = args[2]
-                        
-                        # 判断是文件还是hex字符串
+
+                        # Determine if it's a file or hex string
                         if os.path.exists(source):
-                            # 从文件读取
+                            # Read from file
                             with open(source, 'rb') as f:
                                 data = f.read()
                         else:
-                            # 尝试解析为hex字符串
+                            # Try to parse as hex string
                             source = source.replace('0x', '').replace(' ', '')
                             if len(source) % 2 != 0:
-                                raise ValueError("Hex字符串长度必须是偶数")
+                                raise ValueError("Hex string length must be even")
                             data = bytes.fromhex(source)
-                        
+
                         if self.write_memory(addr, data):
-                            self.log(f"写入成功: {len(data)} 字节到 0x{addr:04X}", "INFO")
-                            
+                            self.log(f"Write successful: {len(data)} bytes to 0x{addr:04X}", "INFO")
+
                     except Exception as e:
-                        self.log(f"错误: {e}", "ERROR")
-                        
+                        self.log(f"Error: {e}", "ERROR")
+
                 elif cmd == 'go':
                     if len(args) < 2:
-                        self.log("用法: go <addr>", "ERROR")
+                        self.log("Usage: go <addr>", "ERROR")
                         continue
-                    
+
                     try:
                         addr = int(args[1], 0)
                         if self.go_execute(addr):
-                            self.log(f"已发送跳转到 0x{addr:04X} 的命令", "INFO")
+                            self.log(f"Sent jump to 0x{addr:04X} command", "INFO")
                     except Exception as e:
-                        self.log(f"错误: {e}", "ERROR")
-                        
+                        self.log(f"Error: {e}", "ERROR")
+
                 else:
-                    self.log(f"未知命令: {cmd}", "ERROR")
-                    self.log("输入 'help' 查看可用命令", "INFO")
-                    
+                    self.log(f"Unknown command: {cmd}", "ERROR")
+                    self.log("Type 'help' for available commands", "INFO")
+
             except KeyboardInterrupt:
-                self.log("\n退出交互模式", "INFO")
+                self.log("\nExiting interactive mode", "INFO")
                 break
             except Exception as e:
-                self.log(f"错误: {e}", "ERROR")
-    
+                self.log(f"Error: {e}", "ERROR")
+
     def print_hex_dump(self, start_addr: int, data: bytes, bytes_per_line: int = 16):
-        """以hexdump格式打印数据"""
+        """Print data in hexdump format"""
         for i in range(0, len(data), bytes_per_line):
             chunk = data[i:i+bytes_per_line]
             hex_str = ' '.join(f'{b:02X}' for b in chunk)
             ascii_str = ''.join(chr(b) if 32 <= b < 127 else '.' for b in chunk)
             addr = start_addr + i
             print(f"{addr:04X}: {hex_str:<48} {ascii_str}")
-    
+
     @staticmethod
     def show_help():
-        """显示帮助信息"""
+        """Display help information"""
         help_text = """
-命令列表:
-  read <addr> <size> [file]    - 读取内存，可选保存到文件
-                                 示例: read 0x8000 256 dump.bin
-  
-  write <addr> <file/hex_str>  - 写入内存，支持文件或hex字符串
-                                 示例: write 0x8000 firmware.bin
-                                 示例: write 0x8000 AABBCCDDEEFF
-  
-  go <addr>                    - 跳转到指定地址执行
-                                 示例: go 0x8000
-  
-  info                         - 显示MCU信息
-  
-  ls [path]                    - 列出目录内容
-  
-  help                         - 显示此帮助信息
-  
-  exit / quit                  - 退出交互模式
+Command List:
+  read <addr> <size> [file]    - Read memory, optionally save to file
+                                 Example: read 0x8000 256 dump.bin
+
+  write <addr> <file/hex_str>  - Write memory, supports file or hex string
+                                 Example: write 0x8000 firmware.bin
+                                 Example: write 0x8000 AABBCCDDEEFF
+
+  go <addr>                    - Jump to specified address for execution
+                                 Example: go 0x8000
+
+  info                         - Display MCU information
+
+  ls [path]                    - List directory contents, files show size, directories only names
+
+  reload                       - Reset MCU and upload boot2 program
+
+  help                         - Display this help information
+
+  exit / quit                  - Exit interactive mode
         """
         print(help_text)
 
 
 def list_serial_ports():
-    """列出可用串口"""
+    """List available serial ports"""
     ports = list_ports.comports()
     if not ports:
-        print("[INFO] 未找到可用串口")
+        print("[INFO] No serial ports found")
         return
-    
-    print("[INFO] 可用串口:")
+
+    print("[INFO] Available serial ports:")
     for i, port in enumerate(ports):
         print(f"  {i+1}. {port.device} - {port.description}")
 
 
 def main():
     parser = argparse.ArgumentParser(
-        description='STM8 Bootloader 交互工具',
+        description='STM8 Bootloader interaction tool',
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
-示例:
-  %(prog)s COM3                           # 进入交互模式
-  %(prog)s COM3 -r 0x8000 256             # 读取内存
-  %(prog)s COM3 -w 0x8000 firmware.bin    # 写入文件
-  %(prog)s COM3 -w 0x8000 "AABBCC"        # 写入hex字符串
-  %(prog)s COM3 -g 0x8000                 # 跳转执行
-  %(prog)s --list-ports                   # 列出可用串口
+Examples:
+  %(prog)s COM3                           # Enter interactive mode
+  %(prog)s COM3 -r 0x8000 256             # Read memory
+  %(prog)s COM3 -w 0x8000 firmware.bin    # Write file
+  %(prog)s COM3 -w 0x8000 "AABBCC"        # Write hex string
+  %(prog)s COM3 -g 0x8000                 # Jump execution
+  %(prog)s --list-ports                   # List available serial ports
         """
     )
-    
-    # 串口相关参数
-    parser.add_argument('port', nargs='?', help='串口号 (如 COM3, /dev/ttyUSB0)')
+
+    # Serial port related parameters
+    parser.add_argument('port', nargs='?', help='Serial port name (e.g., COM3, /dev/ttyUSB0)')
     parser.add_argument('-b', '--baudrate', type=int, default=BOOT2_BAUDRATE,
-                       help=f'串口波特率 (默认: {BOOT2_BAUDRATE})')
-    
-    # boot2上传参数
+                       help=f'Serial port baud rate (default: {BOOT2_BAUDRATE})')
+
+    # boot2 upload parameters
     parser.add_argument('--boot2', default='boot2.bin',
-                       help='boot2程序文件路径 (默认: 脚本目录下的boot2.bin)')
-    
-    # 复位参数
-    parser.add_argument('--reset-pin', choices=['rts', 'dtr', 'none'], default='rts',
-                       help='复位引脚类型，none表示不自动复位 (默认: rts)')
-    
-    # 操作命令
+                       help='boot2 program file path (default: boot2.bin in script directory)')
+    parser.add_argument('--skip-boot2', action='store_true',
+                       help='Skip automatic boot2 upload, directly enter interactive mode')
+
+    # Reset parameters
+    parser.add_argument('--reset-pin', choices=['rts+dtr', 'rts', 'dtr', 'none'], default='rts+dtr',
+                       help='Reset pin type, none means no auto reset (default: rts+dtr)')
+
+    # Operation commands
     parser.add_argument('-r', '--read', nargs=2, metavar=('ADDR', 'SIZE'),
-                       help='读取内存: ADDR为起始地址，SIZE为读取大小')
+                       help='Read memory: ADDR is start address, SIZE is read size')
     parser.add_argument('-w', '--write', nargs=2, metavar=('ADDR', 'FILE/HEX'),
-                       help='写入内存: ADDR为起始地址，FILE/HEX为文件或hex字符串')
+                       help='Write memory: ADDR is start address, FILE/HEX is file or hex string')
     parser.add_argument('-g', '--go', metavar='ADDR',
-                       help='跳转到地址执行')
-    
-    # 其他选项
+                       help='Jump to address for execution')
+
+    # Other options
     parser.add_argument('--list-ports', action='store_true',
-                       help='列出可用串口')
+                       help='List available serial ports')
     parser.add_argument('-o', '--output',
-                       help='读取操作时保存到的文件')
+                       help='File to save read operation output to')
     parser.add_argument('-i', '--interactive', action='store_true',
-                       help='执行命令后进入交互模式')
+                       help='Enter interactive mode after executing command')
     parser.add_argument('-v', '--verbose', action='store_true',
-                       help='显示详细调试信息')
-    
+                       help='Display detailed debug information')
+
     args = parser.parse_args()
-    
-    # 列出串口
+
+    # List serial ports
     if args.list_ports:
         list_serial_ports()
         return
-    
-    # 检查串口参数
+
+    # Check serial port parameter
     if not args.port:
-        print("[ERROR] 必须指定串口号")
-        print("[INFO] 使用 --list-ports 查看可用串口")
+        print("[ERROR] Must specify serial port name")
+        print("[INFO] Use --list-ports to view available serial ports")
         parser.print_help()
         return 1
-    
+
     try:
-        # 创建bootloader实例
+        # Create bootloader instance
         loader = STM8Bootloader(args.port, verbose=args.verbose, reset_pin=args.reset_pin)
-        
-        # 打开串口
+
+        # Open serial port
         loader.open(baudrate=args.baudrate)
-        
-        # 检查是否已在boot2中
+
+        # Check if already in boot2
         in_boot2 = loader.check_boot2()
-        
-        # 如果不在boot2中，则必须上传boot2
-        if not in_boot2:
-            print("[INFO] 不在boot2模式中，开始上传boot2程序...")
+
+        # If not in boot2 and not skipping boot2 upload, must upload boot2
+        if not in_boot2 and not args.skip_boot2:
+            print("[INFO] Not in boot2 mode, starting boot2 program upload...")
             if not loader.upload_boot2(args.boot2):
-                print("[ERROR] boot2上传失败")
+                print("[ERROR] boot2 upload failed")
                 loader.close()
                 return 1
-            print("[INFO] boot2上传成功")
-        
-        # 执行命令行指定的操作
+            print("[INFO] boot2 upload successful")
+        elif args.skip_boot2 and not in_boot2:
+            print("[WARNING] Skipping boot2 upload, but not in boot2 mode")
+            print("[INFO] Please use 'reload' command in interactive mode to upload boot2")
+
+        # Execute command line specified operations
         command_executed = False
-        
+
         if args.read:
             command_executed = True
             try:
                 addr = int(args.read[0], 0)
                 size = int(args.read[1], 0)
-                
+
                 data = loader.read_memory(addr, size)
-                
-                # 打印数据
+
+                # Print data
                 loader.print_hex_dump(addr, data)
-                
-                # 保存到文件（如果指定）
+
+                # Save to file (if specified)
                 if args.output:
                     with open(args.output, 'wb') as f:
                         f.write(data)
-                    print(f"[INFO] 数据已保存到 {args.output}")
-                    
+                    print(f"[INFO] Data saved to {args.output}")
+
             except Exception as e:
-                print(f"[ERROR] 读取失败: {e}")
+                print(f"[ERROR] Read failed: {e}")
                 loader.close()
                 return 1
-        
+
         elif args.write:
             command_executed = True
             try:
                 addr = int(args.write[0], 0)
                 source = args.write[1]
-                
-                # 判断是文件还是hex字符串
+
+                # Determine if it's a file or hex string
                 if os.path.exists(source):
-                    # 从文件读取
+                    # Read from file
                     with open(source, 'rb') as f:
                         data = f.read()
                 else:
-                    # 尝试解析为hex字符串
+                    # Try to parse as hex string
                     source = source.replace('0x', '').replace(' ', '')
                     if len(source) % 2 != 0:
-                        raise ValueError("Hex字符串长度必须是偶数")
+                        raise ValueError("Hex string length must be even")
                     data = bytes.fromhex(source)
-                
+
                 if loader.write_memory(addr, data):
-                    print(f"[INFO] 写入成功: {len(data)} 字节到 0x{addr:04X}")
-                    
+                    print(f"[INFO] Write successful: {len(data)} bytes to 0x{addr:04X}")
+
             except Exception as e:
-                print(f"[ERROR] 写入失败: {e}")
+                print(f"[ERROR] Write failed: {e}")
                 loader.close()
                 return 1
-        
+
         elif args.go:
             command_executed = True
             try:
                 addr = int(args.go, 0)
                 if loader.go_execute(addr):
-                    print(f"[INFO] 已发送跳转到 0x{addr:04X} 的命令")
+                    print(f"[INFO] Sent jump to 0x{addr:04X} command")
             except Exception as e:
-                print(f"[ERROR] 跳转失败: {e}")
+                print(f"[ERROR] Jump failed: {e}")
                 loader.close()
                 return 1
-        
-        # 如果没有指定命令或需要进入交互模式
+
+        # If no command specified or need to enter interactive mode
         if not command_executed or args.interactive:
             loader.interactive_mode()
-        
-        # 关闭串口
+
+        # Close serial port
         loader.close()
-        
+
     except KeyboardInterrupt:
-        print("\n[INFO] 程序被用户中断")
+        print("\n[INFO] Program interrupted by user")
         return 1
     except Exception as e:
-        print(f"[ERROR] 错误: {e}")
+        print(f"[ERROR] Error: {e}")
         return 1
-    
+
     return 0
 
 
