@@ -15,6 +15,19 @@ void main(void) {
     UART1_CR2 = 0x0C;
 
     while(1) {
+        volatile uint8_t *ptr = (volatile uint8_t *)0x0230;
+        delay_ms(2000);
+        for(int i=0; i<16; i++) {
+            for(int k=0; k<16; k++) {
+                UART1_DR = *ptr++;
+                while(!(UART1_SR&0x80));
+            }
+            delay_ms(100);
+            PB_ODR ^= (1 << LED_PIN);
+        }
+    }
+
+    while(1) {
         PB_ODR ^= (1 << LED_PIN);
         UART1_DR = PB_ODR;
         delay_ms(500);

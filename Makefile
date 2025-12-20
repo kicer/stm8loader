@@ -40,7 +40,7 @@ CFLAGS  += --stack-auto --noinduction --use-non-free
 ## Disable lospre (workaround for bug 2673)
 #CFLAGS  += --nolospre
 LDFLAGS  = -m$(ARCH) -l$(ARCH) --out-fmt-ihx
-OPTFLAGS = -Wl-bOPTION=0x4800 -Wl-bOPTION_BOOT=0x480D
+BOOTFLAGS = -Wl-bOPTION=0x4800 -Wl-bOPTION_BOOT=0x480D -Wl-bRAM_BOOT=0x023E
 
 # Conditionally add ENABLE_OPTION_BOOTLOADER macro
 ifneq ($(ENABLE_OPTION_BOOTLOADER),0)
@@ -112,10 +112,16 @@ endif
 
 # Link option bytes separately at address 0x4800
 $(BUILD_DIR)/option.hex: $(OPT_OBJS)
-	$(CC) $(LDFLAGS) $(OPTFLAGS) $(OPT_OBJS) -o $@ || true
+	$(CC) $(LDFLAGS) $(BOOTFLAGS) $(OPT_OBJS) -o $@ || true
 
 $(BUILD_DIR)/option.bin: $(BUILD_DIR)/option.hex
 	$(OBJCOPY) -I ihex --output-target=binary $< $@
+
+boot2: $(SCRIPTS_DIR)/boot2.s | $(BUILD_DIR)
+	$(AS) $(ASFLAGS) $<
+	@mv $(SCRIPTS_DIR)/boot2.lst $(SCRIPTS_DIR)/boot2.rel $(SCRIPTS_DIR)/boot2.sym $(BUILD_DIR)/ 2>/dev/null || true
+	$(CC) $(LDFLAGS) $(BOOTFLAGS) $(BUILD_DIR)/boot2.rel -o $(BUILD_DIR)/boot2.hex || true
+	$(OBJCOPY) -I ihex --output-target=binary $(BUILD_DIR)/boot2.hex $(SCRIPTS_DIR)/boot2.bin
 
 # Show sizes of generated binaries
 size: $(BUILD_DIR)/$(TARGET)$(BOOT_SUFFIX).bin $(BUILD_DIR)/option.bin
@@ -154,9 +160,10 @@ help:
 	@echo "Available targets:"
 	@echo "  all        - Build main application and option bytes (default)"
 	@echo "  clean      - Remove build directory"
-	@echo "  flash      - Flash main application and option bytes via ST-Link"
+	@echo "  flash      - Flash main application and option bytes"
 	@echo "  flash-app  - Flash only main application"
 	@echo "  flash-opt  - Flash only option bytes"
+	@echo "  boot2      - Build boot2 application"
 	@echo "  size       - Show sizes of generated binaries"
 	@echo "  help       - Show this help"
 
