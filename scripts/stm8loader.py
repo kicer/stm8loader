@@ -250,7 +250,7 @@ class STM8Bootloader:
             # 发送数据（不添加校验和）
             self.serial.write(reversed_data)
             self.serial.flush()
-            
+
             self.log(f"已发送 {len(data)} 字节 (倒序)", "DEBUG")
             return True
             
@@ -466,8 +466,8 @@ class STM8Bootloader:
                 self.log("等待被用户中断", "ERROR")
                 return False
         
-        # 4. 等待100ms
-        time.sleep(0.1)
+        # 4. 等待1s
+        time.sleep(1)
         
         # 5. 切换到128000bps并检查是否在boot2中
         self.log("验证boot2程序...", "INFO")
@@ -612,8 +612,8 @@ class STM8Bootloader:
                 raise STM8BootloaderError("信息数据长度不足")
             
             # 解析握手数据
-            boot0_addr = (data[2] << 8) | data[3]  # 注意字节序
-            main_addr = (data[6] << 8) | data[7]    # 注意字节序
+            boot0_addr = (data[1] << 8) | data[0]  # 注意字节序
+            main_addr = (data[7] << 8) | data[6]    # 注意字节序
             
             info = {
                 'boot0_address': boot0_addr,
@@ -627,10 +627,61 @@ class STM8Bootloader:
         except Exception as e:
             raise STM8BootloaderError(f"获取信息失败: {e}")
     
+    @staticmethod
+    def list_directory(path: str = "."):
+        """列出目录内容"""
+        try:
+            items = os.listdir(path)
+            
+            # 分离目录和文件
+            dirs = []
+            files = []
+            
+            for item in items:
+                full_path = os.path.join(path, item)
+                if os.path.isdir(full_path):
+                    dirs.append(item + "/")
+                else:
+                    files.append(item)
+            
+            # 排序
+            dirs.sort()
+            files.sort()
+            
+            # 显示
+            print(f"目录: {os.path.abspath(path)}")
+            print()
+            
+            if dirs or files:
+                # 显示目录
+                for d in dirs:
+                    print(f"  {d}")
+                
+                # 显示文件
+                for f in files:
+                    # 获取文件大小
+                    file_path = os.path.join(path, f)
+                    size = os.path.getsize(file_path)
+                    
+                    # 格式化文件大小
+                    if size < 1024:
+                        size_str = f"{size} B"
+                    elif size < 1024 * 1024:
+                        size_str = f"{size/1024:.1f} KB"
+                    else:
+                        size_str = f"{size/(1024*1024):.1f} MB"
+                    
+                    print(f"  {f:30} {size_str:>10}")
+            else:
+                print("  空目录")
+                
+        except Exception as e:
+            print(f"[ERROR] 无法列出目录: {e}")
+    
     def interactive_mode(self):
         """交互模式"""
         self.log("\n=== STM8 Bootloader 交互模式 ===", "INFO")
-        self.log("可用命令: read, write, go, info, help, exit", "INFO")
+        self.log("可用命令: read, write, go, info, ls, help, exit", "INFO")
         self.log("输入 'help' 查看详细用法\n", "INFO")
         
         while True:
@@ -648,6 +699,11 @@ class STM8Bootloader:
                     
                 elif cmd == 'help':
                     self.show_help()
+                    
+                elif cmd == 'ls':
+                    # 列出目录
+                    path = "." if len(args) < 2 else args[1]
+                    self.list_directory(path)
                     
                 elif cmd == 'info':
                     try:
@@ -760,6 +816,8 @@ class STM8Bootloader:
                                  示例: go 0x8000
   
   info                         - 显示MCU信息
+  
+  ls [path]                    - 列出目录内容
   
   help                         - 显示此帮助信息
   
