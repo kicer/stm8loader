@@ -1,9 +1,9 @@
 ;; M Code
 ;;    option   O0 O1 N1 O2 N2 O3 N3 O4  N4 O5 N5
 ;;      4800   00 00 ff 00 ff 00 ff 00  ff 00 ff -- -- 00 03 d0
-;; 03D0|4810   a6 0d c7 52 32 c7 52 35  c7 52 31 a6 80 5f 5c 27
-;; 03E0|4820   17 72 0b 52 30 f8 3b 52  31 4c 26 f1 c7 52 31 96
-;; 03F0|4830   5c 5c 5c 13 01 26 e4 81  fe 94 72 cc 48 3e 80 04
+;; 03D0|4810   a6 0d c7 52 32 c7 52 35  c7 52 31 4f 5f 5c 27 0b
+;; 03E0|4820   72 0b 52 30 f8 3b 52 31  4c 20 f1 4d 27 09 96 5c
+;; 03F0|4830   5c 5c 13 01 26 01 81 5f  fe 94 72 cc 48 3e 80 04
 
 ;; UART1 register address definitions
 UART1_SR    = 0x5230   ; Status register
@@ -33,14 +33,12 @@ _boot_start:
     ;; Send BREAK signal and version number $0D
     ld      UART1_DR, A     ; [C7 52 31] Send version number 0x0D
 
-    ;; Receive 128-byte data block and push onto stack
-_boot_rx_block:
-    ld      A, #0x80        ; [A6 80]
+    clr     A
 _boot_rx_byte:
     clrw    X               ; [5F] Reset X (for timeout detection)
 _boot_rx_wait:
     incw    X               ; [5C] Increment X, check for overflow (timeout detection)
-    jreq    _boot_exit      ; [27 14] If X overflows (receive timeout), exit
+    jreq    _boot_timeout   ; [27 14] If X overflows (receive timeout), exit
 
     ;; Wait for data reception
     btjf    UART1_SR, #5, _boot_rx_wait ;[72 0B 52 30 F8]
@@ -48,23 +46,24 @@ _boot_rx_wait:
     ;; Data received, push onto stack
     push    UART1_DR        ; [3B 52 31]
     inc     A               ; [4C] Increment A, used as receive counter
-    jrne    _boot_rx_byte ; [26 F1] If A is not 0, continue receiving
+    jra    _boot_rx_byte ; [26 F1] If A is not 0, continue receiving
 
-    ;; Receive 128 bytes success
-    ld      UART1_DR, A     ; [C7 52 31] Send Ack 0x00
-
+_boot_timeout:
+    tnz A
+    jreq _boot_exit
     ;; Check address
     ldw     X, SP           ; [96]
     incw    X               ; [5c]
     incw    X               ; [5c]
     incw    X               ; [5c]
     cpw     X, (1, SP)      ; [13 01]
-    jrne    _boot_rx_block  ; [26 E7]
+    jrne    _boot_exit      ; [26 E7]
     ;; Reception complete, jump to received code
     ret                     ; [81] Jump to address at top of stack via ret instruction
 
 _boot_exit:
     ;; Timeout exit, jump to user program
+    clrw    X
     ldw     X, (X)          ; [FE]
     ldw     SP, X           ; [94]
     jp      [_boot_go_adr]  ; [72 CC 48 3E] Indirect jump

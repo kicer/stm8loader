@@ -10,7 +10,7 @@
 ;   字节69: 校验和 (所有字节XOR)
 ; ================================================
 
-BOOT2_SP    = 0x03CF   ; start of boot1 ram address
+BOOT2_SP    = 0x03CD   ; start of boot1 ram address
 
 ;; Register address definitions
 UART1_SR    = 0x5230   ; Status register
@@ -31,9 +31,7 @@ WWDG_CR     = 0x50D1   ; WWDG control register
 ;; Const vars
 CMD_READ    = 0xF1     ; 读内存命令
 CMD_WRITE   = 0xF2     ; 写内存命令
-CMD_ERASE   = 0xF3     ; 整片擦除命令
-CMD_RESET   = 0xF4     ; 复位命令
-CMD_GO      = 0xF5     ; 跳转执行命令
+CMD_GO      = 0xF3     ; 跳转执行命令
 
 CMD_HEADER   = 0x5A    ; 帧头
 ACK_HEADER   = 0xA5    ; 应答帧头
@@ -50,16 +48,16 @@ DEFAULT_SP_H = 0x0000  ; ram top address
 DEFAULT_SP_L = 0x0000  ; ram top address
 tx_buffer    = 0x0002  ; protocol tx buffer
 rx_buffer    = 0x0002  ; protocol rx buffer
-rx_state       = 72    ; 接收状态
-rx_length      = 73    ; 接收长度
-tx_state       = 74    ; 发送状态
-tx_data_length = 75    ; 待发送的数据长度
-calc_checksum  = 76    ; 计算的校验和
-temp_var1      = 77    ; 临时变量
-temp_var2      = 78    ; 临时变量
-temp_var3      = 79    ; 临时变量
+rx_state         = 72  ; 接收状态
+rx_length        = 73  ; 接收长度
+tx_state         = 74  ; 发送状态
+tx_data_length   = 75  ; 待发送的数据长度
+calc_checksum    = 76  ; 计算的校验和
+temp_var1        = 77  ; 临时变量
+temp_var2        = 78  ; 临时变量
+temp_var3        = 79  ; 临时变量
 
-;; Bootloader body (load in ram ?-0x03D2)
+;; Bootloader body (load in ram ?-0x03D0)
     .area   RAM_BOOT
 
     .db     (BOOT2_SP-(_end-_start)+1)>>8
@@ -67,16 +65,15 @@ temp_var3      = 79    ; 临时变量
 
 _start:
     ; 配置UART1: 128000波特率, 8N1, 启用TX/RX
-    mov UART1_BRR2, #0
     mov UART1_BRR1, #1
-    mov UART1_CR2, #0x0C  ; TEN=1, REN=1
-
+    ;mov UART1_BRR2, #0
+    ;mov UART1_CR2, #0x0C  ; TEN=1, REN=1
 _main_loop:
     ; 接收命令帧
-    call receive_frame
+    callr receive_frame
 
     ; 验证校验和
-    call verify_checksum
+    callr verify_checksum
     jrne _checksum_error
 
     ; 根据命令类型跳转
@@ -87,12 +84,6 @@ _main_loop:
 
     cp A, #CMD_WRITE
     jreq _cmd_write
-
-    cp A, #CMD_ERASE
-    jreq _cmd_erase
-
-    cp A, #CMD_RESET
-    jreq _cmd_reset
 
     cp A, #CMD_GO
     jreq _cmd_go
@@ -119,19 +110,10 @@ _cmd_write:
     call write_memory
     jra _main_loop
 
-_cmd_erase:
-    ; 擦除命令
-    call erase_memory
-    jra _main_loop
-
-_cmd_reset:
-    ; 复位命令 - 软件复位
-    call software_reset
-    ; 注意: software_reset 不返回
-
 _cmd_go:
     ; 跳转执行命令
-    call jump_to_address
+    ldw X, rx_buffer+2
+    jp (X)
     ; 注意: jump_to_address 不返回
 
 receive_frame:
@@ -252,7 +234,7 @@ send_ack_state_response:
     ld A, tx_state
     ld (X), A
 
-    call send_response_pkg
+    callr send_response_pkg
     ret
 
 ; 发送应答数据帧
@@ -269,7 +251,7 @@ send_ack_data_response:
 
     ; already set data
 
-    call send_response_pkg
+    callr send_response_pkg
     ret
 
 read_memory:
@@ -296,7 +278,7 @@ _read_loop:
     dec temp_var1
     jrne _read_loop
 
-    call send_ack_data_response
+    callr send_ack_data_response
     ret
 
 ; temp_var1: 待写入长度
@@ -337,12 +319,12 @@ _mem_write:
     incw Y
     dec temp_var1
     jrne _mem_write
-    call send_ack_state_response
+    callr send_ack_state_response
     ret
 
 _flash_write:
     ; unlock FLASH/DATA
-    call unlock_flash
+    callr unlock_flash
 
     ; Word Program
     mov FLASH_CR2, #0xC0
@@ -381,7 +363,7 @@ _write_end:
     mov FLASH_CR2, #0x00
     mov FLASH_NCR2, #0xFF
     ; lock FLASH/DATA
-    call lock_flash
+    callr lock_flash
     call send_ack_state_response
     ret
 
@@ -410,55 +392,5 @@ _do_lock_flash:
 _do_lock_data:
     bres FLASH_IAPSR, #3
     ret
-
-; 两个字节长度
-erase_memory:
-    ; unlock option byte
-    mov FLASH_CR2, #0xC0
-    mov FLASH_NCR2, #0x3F
-
-    ld A, #0xAA     ; lock chip
-_write_rop:
-    ld OPT0_ROP, A
-_erase_loop:
-    mov temp_var1, FLASH_IAPSR
-    btjt   temp_var1, #0, _lock_opt
-    btjf   temp_var1, #2, _erase_loop
-
-    cp A, #0
-    jreq _lock_opt
-    ld A, #0        ; unlock chip
-    jra _write_rop
-
-_lock_opt:
-    ; lock option byte
-    mov FLASH_CR2, #0x00
-    mov FLASH_NCR2, #0xFF
-    ret
-
-software_reset:
-    ; STM8软件复位: 写0x80到WWDG_CR
-    mov WWDG_CR, #0x80
-    ; 复位需要时间，这里无限循环
-    jra software_reset
-
-jump_to_address:
-    mov tx_state, #SUCCESS_CODE
-    call send_ack_state_response
-
-    ; 使用X作为延时计数器
-    ldw X, #1000
-_delay_loop:
-    decw X
-    jrne _delay_loop
-
-    ; 读取跳转地址
-    ld A, rx_buffer+2
-    ld XH, A
-    ld A, rx_buffer+3
-    ld XL, A
-
-    ; 跳转到指定地址
-    jp (X)
 
 _end:
