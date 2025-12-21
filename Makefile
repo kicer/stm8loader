@@ -40,7 +40,8 @@ CFLAGS  += --stack-auto --noinduction --use-non-free
 ## Disable lospre (workaround for bug 2673)
 #CFLAGS  += --nolospre
 LDFLAGS  = -m$(ARCH) -l$(ARCH) --out-fmt-ihx
-BOOTFLAGS = -Wl-bOPTION=0x4800 -Wl-bOPTION_BOOT=0x480D -Wl-bRAM_BOOT=0x023E
+OPTFLAGS = -Wl-bOPTION=0x4800 -Wl-bOPTION_BOOT=0x480D
+B2FLAGS  = -Wl-bRAM_BOOT=0x023E
 
 # Conditionally add ENABLE_OPTION_BOOTLOADER macro
 ifneq ($(ENABLE_OPTION_BOOTLOADER),0)
@@ -112,7 +113,7 @@ endif
 
 # Link option bytes separately at address 0x4800
 $(BUILD_DIR)/option.hex: $(OPT_OBJS)
-	$(CC) $(LDFLAGS) $(BOOTFLAGS) $(OPT_OBJS) -o $@ || true
+	$(CC) $(LDFLAGS) $(OPTFLAGS) $(OPT_OBJS) -o $@
 
 $(BUILD_DIR)/option.bin: $(BUILD_DIR)/option.hex
 	$(OBJCOPY) -I ihex --output-target=binary $< $@
@@ -120,7 +121,7 @@ $(BUILD_DIR)/option.bin: $(BUILD_DIR)/option.hex
 boot2: $(SCRIPTS_DIR)/boot2.s | $(BUILD_DIR)
 	$(AS) $(ASFLAGS) $<
 	@mv $(SCRIPTS_DIR)/boot2.lst $(SCRIPTS_DIR)/boot2.rel $(SCRIPTS_DIR)/boot2.sym $(BUILD_DIR)/ 2>/dev/null || true
-	$(CC) $(LDFLAGS) $(BOOTFLAGS) $(BUILD_DIR)/boot2.rel -o $(BUILD_DIR)/boot2.hex || true
+	$(CC) $(LDFLAGS) $(B2FLAGS) $(BUILD_DIR)/boot2.rel -o $(BUILD_DIR)/boot2.hex
 	$(OBJCOPY) -I ihex --output-target=binary $(BUILD_DIR)/boot2.hex $(SCRIPTS_DIR)/boot2.bin
 
 # Show sizes of generated binaries

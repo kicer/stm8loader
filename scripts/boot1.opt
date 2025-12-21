@@ -11,18 +11,19 @@ UART1_DR    = 0x5231   ; Data register
 UART1_BRR1  = 0x5232   ; Baud rate register 1
 UART1_CR2   = 0x5235   ; Control register 2
 
-RAM_SIZE    = 0x0400   ; Ram size (end of bootloader address)
+BOOT1_ULA   = 0x03FF   ; boot1 ram Upper-Limit-Address
 
-;; Bootloader body (located in OPT reserved area 0x481C-0x483F)
+;; Bootloader body (located in OPT reserved area 0x480D-0x483F)
+    .area   DATA
+    .area   HOME
     .area   OPTION_BOOT
 
-_boot_start_data:
     ;; Termination flag (copy process stops when encountering 0)
     .db     0x00       ; [00] Termination byte
 
     ;; [03 D0] RAM address for ret execution
-    .db     (RAM_SIZE-(_boot_go_adr-_boot_start+2))>>8
-    .db     (RAM_SIZE-(_boot_go_adr-_boot_start+2))&0xFF
+    .db     (BOOT1_ULA-(_boot_end-_boot_start)+1)>>8
+    .db     (BOOT1_ULA-(_boot_end-_boot_start)+1)&0xFF
 
 _boot_start:
     ;; Initialize UART 9600 8N1
@@ -70,3 +71,5 @@ _boot_exit:
 
 _boot_go_adr:
     .db     0x80, 0x04      ; [80 04] User program address: 0x8004
+
+_boot_end:

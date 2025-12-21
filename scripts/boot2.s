@@ -10,8 +10,6 @@
 ;   字节69: 校验和 (所有字节XOR)
 ; ================================================
 
-BOOT2_SP    = 0x03CD   ; start of boot1 ram address
-
 ;; Register address definitions
 UART1_SR    = 0x5230   ; Status register
 UART1_DR    = 0x5231   ; Data register
@@ -43,25 +41,29 @@ ERR_PGDIS    = 0xE3    ; 编程受保护的地址
 
 MAX_DATA_SIZE = 64     ; 最大数据长度
 
-;; Vars
-DEFAULT_SP_H = 0x0000  ; ram top address
-DEFAULT_SP_L = 0x0000  ; ram top address
-tx_buffer    = 0x0002  ; protocol tx buffer
-rx_buffer    = 0x0002  ; protocol rx buffer
-rx_state         = 72  ; 接收状态
-rx_length        = 73  ; 接收长度
-tx_state         = 74  ; 发送状态
-tx_data_length   = 75  ; 待发送的数据长度
-calc_checksum    = 76  ; 计算的校验和
-temp_var1        = 77  ; 临时变量
-temp_var2        = 78  ; 临时变量
-temp_var3        = 79  ; 临时变量
+;; Global vars
+;; After an MCU reset the Stack Pointer is set to its upper limit value
+DEFAULT_SP_H = 0x0000  ; Saved with SP value
+DEFAULT_SP_L = 0x0001  ;
+rx_state          = 2  ; 接收状态
+rx_length         = 3  ; 接收长度
+tx_state          = 4  ; 发送状态
+tx_data_length    = 5  ; 待发送的数据长度
+calc_checksum     = 6  ; 计算的校验和
+temp_var1         = 7  ; 临时变量
+temp_var2         = 8  ; 临时变量
+temp_var3         = 9  ; 临时变量
+tx_buffer    = 0x000A  ; protocol tx buffer
+rx_buffer    = 0x000A  ; protocol rx buffer
 
-;; Bootloader body (load in ram ?-0x03D0)
+BOOT2_ULA   = 0x03CF   ; boot2 ram Upper-Limit-Address
+
+    .area   DATA
+    .area   HOME
     .area   RAM_BOOT
 
-    .db     (BOOT2_SP-(_end-_start)+3)>>8
-    .db     (BOOT2_SP-(_end-_start)+3)&0xFF
+    .db     (BOOT2_ULA-(_end-_start)+1)>>8
+    .db     (BOOT2_ULA-(_end-_start)+1)&0xFF
 
 _start:
     ; 配置UART1: 128000波特率, 8N1, 启用TX/RX
