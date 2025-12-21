@@ -30,6 +30,7 @@ WWDG_CR     = 0x50D1   ; WWDG control register
 CMD_READ    = 0xF1     ; 读内存命令
 CMD_WRITE   = 0xF2     ; 写内存命令
 CMD_GO      = 0xF3     ; 跳转执行命令
+CMD_EXEC    = 0xF4     ; 直接执行机器码命令
 
 CMD_HEADER   = 0x5A    ; 帧头
 ACK_HEADER   = 0xA5    ; 应答帧头
@@ -90,6 +91,9 @@ _main_loop:
     cp A, #CMD_GO
     jreq _cmd_go
 
+    cp A, #CMD_EXEC
+    jreq _cmd_exec
+
 _invalid_cmd_error:
     ; 未知命令，发送错误响应
     mov tx_state, #ERR_INVCMD
@@ -117,6 +121,13 @@ _cmd_go:
     ldw X, rx_buffer+2
     jp (X)
     ; 注意: jump_to_address 不返回
+
+_cmd_exec:
+    ; 直接执行收到的机器码
+    ld A, #0x81     ; ret code
+    ld (X), A       ; X point to checksum already
+    call rx_buffer
+    jra _main_loop
 
 receive_frame:
     ; 初始化接收状态

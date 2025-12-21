@@ -42,7 +42,7 @@ CFLAGS  += --stack-auto --noinduction --use-non-free
 LDFLAGS  = -m$(ARCH) -l$(ARCH) --out-fmt-ihx
 
 OPTION_BOOT := 0x480D
-RAM_BOOT    := 0x023E
+RAM_BOOT    := 0x0232
 OPTFLAGS = -Wl-bOPTION=0x4800 -Wl-bOPTION_BOOT=$(OPTION_BOOT)
 B2FLAGS  = -Wl-bRAM_BOOT=$(RAM_BOOT)
 
@@ -130,8 +130,10 @@ boot2: $(SCRIPTS_DIR)/boot2.s | $(BUILD_DIR)
 	@B2SIZE=$$(wc -c < $(SCRIPTS_DIR)/boot2.bin); \
 	SIZE1K=$$(($$B2SIZE+$(RAM_BOOT)+(0x4840-$(OPTION_BOOT)-3))); \
 	if [ $$SIZE1K -ne 1024 ]; then \
-        echo ""; \
-        echo "!!! boot2 ram address error!!! $(RAM_BOOT)"; \
+		echo ""; \
+		echo "!!! boot2 ram address error!!!"; \
+		NEW_RAM_BOOT=$$((1024-$$SIZE1K+$(RAM_BOOT))); \
+		echo "    RAM_BOOT: $(RAM_BOOT) -> 0x$$(printf "%X" $$NEW_RAM_BOOT)"; \
 	fi
 
 # Show sizes of generated binaries
