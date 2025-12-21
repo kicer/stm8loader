@@ -801,7 +801,7 @@ class STM8Bootloader:
                     except Exception as e:
                         self.log(f"Error: {e}", "ERROR")
 
-                elif cmd == 'read':
+                elif cmd == 'read' or cmd == 'r':
                     if len(args) < 3:
                         self.log("Usage: read <addr> <size> [file]", "ERROR")
                         continue
@@ -825,7 +825,7 @@ class STM8Bootloader:
                     except Exception as e:
                         self.log(f"Error: {e}", "ERROR")
 
-                elif cmd == 'write':
+                elif cmd == 'write' or cmd == 'w':
                     if len(args) < 3:
                         self.log("Usage: write <addr> <file/hex_string>", "ERROR")
                         self.log("Example: write 0x8000 firmware.bin", "INFO")
@@ -854,7 +854,7 @@ class STM8Bootloader:
                     except Exception as e:
                         self.log(f"Error: {e}", "ERROR")
 
-                elif cmd == 'exec':
+                elif cmd == 'exec' or cmd == 'x':
                     if len(args) < 2:
                         self.log("Usage: exec <hex_string>", "ERROR")
                         self.log("Example: exec 4F9D (CLR A; NOP)", "INFO")
@@ -880,7 +880,7 @@ class STM8Bootloader:
                     except Exception as e:
                         self.log(f"Error: {e}", "ERROR")
 
-                elif cmd == 'go':
+                elif cmd == 'go' or cmd == 'g':
                     if len(args) < 2:
                         self.log("Usage: go <addr>", "ERROR")
                         continue
@@ -916,28 +916,28 @@ class STM8Bootloader:
         """Display help information"""
         help_text = """
 Command List:
-  read <addr> <size> [file]    - Read memory, optionally save to file
+  r/read <addr> <size> [file]  - Read memory, optionally save to file
                                  Example: read 0x8000 256 dump.bin
 
-  write <addr> <file/hex_str>  - Write memory, supports file or hex string
+  w/write <addr> <file/hexstr> - Write memory, supports file or hex string
                                  Example: write 0x8000 firmware.bin
                                  Example: write 0x8000 AABBCCDDEEFF
 
-  exec <hex_str>               - Execute machine code at specified address
+  x/exec <hexstr>              - Execute machine code at *fixed* address
                                  Example: exec 4F9D (CLR A; NOP;)
 
-  go <addr>                    - Jump to specified address for execution
+  g/go <addr>                  - Jump to specified address for execution
                                  Example: go 0x8000
 
   info                         - Display MCU information
 
-  ls [path]                    - List directory contents, files show size, directories only names
+  ls [path]                    - List directory contents, files show size
 
   reload [file]                - Reset MCU and upload boot2 program
 
   help                         - Display this help information
 
-  exit / quit                  - Exit interactive mode
+  exit/quit                    - Exit interactive mode
         """
         print(help_text)
 
@@ -991,6 +991,8 @@ Examples:
                        help='Write memory: ADDR is start address, FILE/HEX is file or hex string')
     parser.add_argument('-g', '--go', metavar='ADDR',
                        help='Jump to address for execution')
+    parser.add_argument('-x', '--exec', metavar='HEX',
+                       help='Execute machine code')
 
     # Other options
     parser.add_argument('--list-ports', action='store_true',
@@ -1101,6 +1103,23 @@ Examples:
                     print(f"[INFO] Sent jump to 0x{addr:04X} command")
             except Exception as e:
                 print(f"[ERROR] Jump failed: {e}")
+                loader.close()
+                return 1
+
+        elif args.exec:
+            command_executed = True
+            try:
+                addr = 0
+                hex_str = args.exec.replace('0x', '').replace(' ', '')
+                if len(hex_str) % 2 != 0:
+                    raise ValueError("Hex string length must be even")
+                machine_code = bytes.fromhex(hex_str)
+                if len(machine_code) > MAX_DATA_SIZE:
+                    raise ValueError("Machine code too long (max {MAX_DATA_SIZE} bytes)")
+                if loader.exec_machine_code(addr, machine_code):
+                    print(f"[INFO] Exec {len(machine_code)} bytes")
+            except Exception as e:
+                print(f"[ERROR] Exec failed: {e}")
                 loader.close()
                 return 1
 

@@ -126,7 +126,7 @@ _cmd_exec:
     ; 直接执行收到的机器码
     ld A, #0x81     ; ret code
     ld (X), A       ; X point to checksum already
-    call rx_buffer
+    call rx_buffer+5
     ld A, #SUCCESS_CODE
     jra _ack_then_back
 
