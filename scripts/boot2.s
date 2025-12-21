@@ -96,15 +96,15 @@ _main_loop:
 
 _invalid_cmd_error:
     ; 未知命令，发送错误响应
-    mov tx_state, #ERR_INVCMD
+    ld A, #ERR_INVCMD
+_ack_then_back:
     call send_ack_state_response
     jra _main_loop
 
 _checksum_error:
     ; 校验和错误响应
-    mov tx_state, #ERR_CHECKSUM
-    call send_ack_state_response
-    jra _main_loop
+    ld A, #ERR_CHECKSUM
+    jra _ack_then_back
 
 _cmd_read:
     ; 读取内存命令
@@ -127,7 +127,8 @@ _cmd_exec:
     ld A, #0x81     ; ret code
     ld (X), A       ; X point to checksum already
     call rx_buffer
-    jra _main_loop
+    ld A, #SUCCESS_CODE
+    jra _ack_then_back
 
 receive_frame:
     ; 初始化接收状态
@@ -204,12 +205,18 @@ _verify_loop:
     ret
 
 send_response_pkg:
-    clr calc_checksum
+    ; set header
     ldw X, #tx_buffer
+    ld A, #ACK_HEADER
+    ld (X), A
+
+    ; tx_data_length += 5
     ld A, tx_data_length
     add A, #5
     ld temp_var1, A
+
     ; send data
+    clr calc_checksum
 _send_loop:
     ld A, (X)
     ld UART1_DR, A
@@ -222,49 +229,39 @@ _wait_tx1:
     incw X
     dec temp_var1
     jrne _send_loop
+
     ; send checksum
     ld A, calc_checksum
     ld UART1_DR, A
 _wait_tx2:
     btjf UART1_SR, #7, _wait_tx2
+
     ; finish
     ret
 
 ; 发送应答状态帧
 send_ack_state_response:
-    ; set header
-    ldw X, #tx_buffer
-    ld A, #ACK_HEADER
+    ; set data
+    ldw X, #tx_buffer+5
     ld (X), A
 
     ; set length
-    addw X, #4
+    decw X
     ld A, #1
     ld (X), A
     ld tx_data_length, A
-
-    ; set data
-    incw X
-    ld A, tx_state
-    ld (X), A
 
     callr send_response_pkg
     ret
 
 ; 发送应答数据帧
 send_ack_data_response:
-    ; set header
-    ldw X, #tx_buffer
-    ld A, #ACK_HEADER
-    ld (X), A
-
     ; set length
-    addw X, #4
+    ldw X, #tx_buffer+4
     ld A, tx_data_length
     ld (X), A
 
     ; already set data
-
     callr send_response_pkg
     ret
 
@@ -333,6 +330,7 @@ _mem_write:
     incw Y
     dec temp_var1
     jrne _mem_write
+    ld A, #SUCCESS_CODE
     callr send_ack_state_response
     ret
 
@@ -378,6 +376,7 @@ _write_end:
     mov FLASH_NCR2, #0xFF
     ; lock FLASH/DATA
     callr lock_flash
+    ld A, tx_state
     call send_ack_state_response
     ret
 

@@ -42,7 +42,7 @@ CFLAGS  += --stack-auto --noinduction --use-non-free
 LDFLAGS  = -m$(ARCH) -l$(ARCH) --out-fmt-ihx
 
 OPTION_BOOT := 0x480D
-RAM_BOOT    := 0x0232
+RAM_BOOT    := 0x023E
 OPTFLAGS = -Wl-bOPTION=0x4800 -Wl-bOPTION_BOOT=$(OPTION_BOOT)
 B2FLAGS  = -Wl-bRAM_BOOT=$(RAM_BOOT)
 
