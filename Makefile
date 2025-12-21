@@ -40,8 +40,11 @@ CFLAGS  += --stack-auto --noinduction --use-non-free
 ## Disable lospre (workaround for bug 2673)
 #CFLAGS  += --nolospre
 LDFLAGS  = -m$(ARCH) -l$(ARCH) --out-fmt-ihx
-OPTFLAGS = -Wl-bOPTION=0x4800 -Wl-bOPTION_BOOT=0x480D
-B2FLAGS  = -Wl-bRAM_BOOT=0x023E
+
+OPTION_BOOT := 0x480D
+RAM_BOOT    := 0x023E
+OPTFLAGS = -Wl-bOPTION=0x4800 -Wl-bOPTION_BOOT=$(OPTION_BOOT)
+B2FLAGS  = -Wl-bRAM_BOOT=$(RAM_BOOT)
 
 # Conditionally add ENABLE_OPTION_BOOTLOADER macro
 ifneq ($(ENABLE_OPTION_BOOTLOADER),0)
@@ -123,6 +126,13 @@ boot2: $(SCRIPTS_DIR)/boot2.s | $(BUILD_DIR)
 	@mv $(SCRIPTS_DIR)/boot2.lst $(SCRIPTS_DIR)/boot2.rel $(SCRIPTS_DIR)/boot2.sym $(BUILD_DIR)/ 2>/dev/null || true
 	$(CC) $(LDFLAGS) $(B2FLAGS) $(BUILD_DIR)/boot2.rel -o $(BUILD_DIR)/boot2.hex
 	$(OBJCOPY) -I ihex --output-target=binary $(BUILD_DIR)/boot2.hex $(SCRIPTS_DIR)/boot2.bin
+	@# Check boot2 load address
+	@B2SIZE=$$(wc -c < $(SCRIPTS_DIR)/boot2.bin); \
+	SIZE1K=$$(($$B2SIZE+$(RAM_BOOT)+(0x4840-$(OPTION_BOOT)-3))); \
+	if [ $$SIZE1K -ne 1024 ]; then \
+        echo ""; \
+        echo "!!! boot2 ram address error!!! $(RAM_BOOT)"; \
+	fi
 
 # Show sizes of generated binaries
 size: $(BUILD_DIR)/$(TARGET)$(BOOT_SUFFIX).bin $(BUILD_DIR)/option.bin
@@ -168,4 +178,4 @@ help:
 	@echo "  size       - Show sizes of generated binaries"
 	@echo "  help       - Show this help"
 
-.PHONY: clean all flash flash-opt flash-app size option help
+.PHONY: clean all flash flash-opt flash-app size boot2 help
