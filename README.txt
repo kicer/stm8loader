@@ -8,17 +8,17 @@ Note: The bootloader implementation is based on and inspired by the [STM8uLoader
 
 ## Features
 
-- **Dual-stage Bootloader**: 
-  - Boot1: Minimal bootloader stored in option bytes (0x4812-0x483F)
+- **Three-stage Bootloader**:
+  - Boot0: TRAP isr for load boot1
+  - Boot1: Minimal bootloader stored in *reserved* option bytes
   - Boot2: Full-featured bootloader loaded via serial communication
   
 - **Flexible Configuration**: 
   - Enable/disable bootloader via `ENABLE_OPTION_BOOTLOADER` Makefile macro
-  - Configurable communication parameters
   
 - **Complete Toolchain**:
   - PC-side programming utility for firmware updates
-  - Support for read, write, verify, and reset operations
+  - Support for read, write, go and exec operations
   
 - **Safe Operation**:
   - Bootloader integrity protected in option bytes
@@ -29,18 +29,18 @@ Note: The bootloader implementation is based on and inspired by the [STM8uLoader
 This project's bootloader implementation is derived from the excellent STM8uLoader project by ovsp. Key adaptations include:
 
 - Integration into a modular template project structure
-- Dual-stage bootloader approach (Boot1 in option bytes, Boot2 loaded dynamically)
+- Three-stage bootloader approach (Boot1 in option bytes, Boot2 loaded dynamically)
 - Enhanced Makefile system with configuration macros
 - Extended command set and error handling
 
 ## Bootloader Operation Flow
 
 1. **Power-on/Reset**:
-   - MCU starts execution at reset vector
+   - MCU starts execution at reset vector(0x8000)
    - Control transfers to `bootloader_enter()` in `bsp/init0.c`
    
 2. **Stage 1 (Boot1)**:
-   - Copies Boot1 from option bytes (0x4812-0x483F) to RAM and Run
+   - Copies Boot1 from option bytes (0x480E-0x483F) to RAM and Run
    - Sends synchronization sequence `0x00 0x0D` via UART
    - Waits for PC to send Boot2 code
    
@@ -50,7 +50,7 @@ This project's bootloader implementation is derived from the excellent STM8uLoad
    - Processes PC commands for programming, reading, and device control
 
 4. **Application Start**:
-   - On successful programming or timeout, jumps to main application
+   - On successful programming or timeout, jumps to main application(0x8004)
    - Option to stay in bootloader mode for debugging
 
 ## Building the Project
@@ -81,14 +81,24 @@ make all
 make flash
 ```
 
+## Bootloader Integration
+
+1. The main application includes `bootloader.h`, which redirects the TRAP interrupt vector to `bootloader_enter()` in `bsp/boot0.c`.
+
+2. During the build process, the Makefile swaps the reset vector (0x8000) and trap vector (0x8004) positions. This ensures that upon startup, the bootloader entry routine executes first.
+
+3. It sends a handshake signal (`0x00 0x0D`) via UART1 and waits approximately 200ms for a response.
+
+4. If no response is received within the timeout period, execution proceeds to the main application (reset vector).
+
 ## Option Bytes Configuration
 
-The bootloader uses the reserved option byte area (0x4812-0x483F) for storage:
+The bootloader uses the reserved option byte area for storage:
 
 | Address Range | Content                  | Size  |
 |---------------|--------------------------|-------|
 | 0x4800-0x480A | Device option bytes      | 11 bytes |
-| 0x4812-0x483F | Boot1 code               | 46 bytes |
+| 0x480D-0x483F | Boot1 code               | 51 bytes |
 
 **Important**: These addresses are specific to STM8S103/003. Adjust for other STM8 variants.
 
@@ -101,18 +111,18 @@ The bootloader uses the reserved option byte area (0x4812-0x483F) for storage:
 - **Stop Bits**: 1
 
 ### Command Set
-| Command | Opcode | Description                          |
-|---------|--------|--------------------------------------|
-| READ    | 0xF1   | Read memory from device              |
-| WRITE   | 0xF2   | Write memory to device               |
-| ERASE   | 0xF3   | Erase flash sectors                  |
-| RESET   | 0xF4   | Reset to application                 |
+| Command   | Opcode | Description                          |
+|-----------|--------|--------------------------------------|
+| CMD_READ  | 0xF1   | Read memory from device              |
+| CMD_WRITE | 0xF2   | Write memory to device               |
+| CMD_GO    | 0xF3   | Jump address for execution           |
+| CMD_EXEC  | 0xF4   | Execute Machine-Code                 |
 
 ### Communication Sequence
 1. Boot1 sends sync bytes: `0x00 0x0D`
-2. PC responds with Boot2 code length
-3. Boot1 acknowledges and receives Boot2
-4. Boot2 executes and presents command prompt
+2. PC responds with Boot2 reversed bytes
+3. Boot1 receves Boot2 and checksum
+4. Boot2 executes and prepare to receive cmd
 5. PC sends commands with appropriate parameters
 
 ## Usage Example
@@ -120,14 +130,13 @@ The bootloader uses the reserved option byte area (0x4812-0x483F) for storage:
 ### Programming New Firmware
 ```bash
 # 1. Build the application
-make ENABLE_OPTION_BOOTLOADER=1
+make flash
 
-# 2. Connect to device
-python scripts/stm8isp.py --port /dev/ttyUSB0
+# 2. Enter interactive mode
+python scripts/stm8loader.py /dev/ttyUSB0
 
-# 3. Follow interactive prompts to program
-#    or use command line:
-python scripts/stm8isp.py --port /dev/ttyUSB0 --write firmware.ihx
+# 3. Use command line:
+python scripts/stm8loader.py /dev/ttyUSB0 --write 0x8000 firmware.bin
 ```
 
 ## Supported Devices
@@ -148,8 +157,9 @@ Currently tested with:
 
 2. **Bootloader not starting**:
    - Verify `ENABLE_OPTION_BOOTLOADER` is set during compilation
-   - Check reset vector points to `bootloader_enter`
-   - Confirm option bytes are protected from erasure
+   - Check main.c include `bootloader.h`
+   - Check `bsp/boot0.c`
+   - Confirm option bytes
 
 ## Safety Considerations
 
@@ -164,6 +174,7 @@ Currently tested with:
 - [STM8S Reference Manual](https://www.st.com/resource/en/reference_manual/cd00190271-stm8s-series-and-stm8af-series-8bit-microcontrollers-stmicroelectronics.pdf)
 - [SDCC User Guide](http://sdcc.sourceforge.net/doc/sdccman.pdf)
 - [STM8 Bootloader AN2659](https://www.st.com/resource/en/application_note/cd00173937-stm8-swim-communication-protocol-and-debug-module-stmicroelectronics.pdf)
+- [STM8 CPU programming manual](https://www.st.com/resource/en/programming_manual/cd00161709-stm8-cpu-programming-manual-stmicroelectronics.pdf)
 
 ---
 

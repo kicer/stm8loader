@@ -962,9 +962,10 @@ def main():
 Examples:
   %(prog)s /dev/ttyUSB0                      # Enter interactive mode
   %(prog)s /dev/ttyUSB0 -r 0x8000 256        # Read memory
-  %(prog)s /dev/ttyUSB0 -w 0x8000 firmware.bin    # Write file
+  %(prog)s /dev/ttyUSB0 -w 0x8000 fw.bin     # Write file
   %(prog)s /dev/ttyUSB0 -w 0x8000 "AABBCC"   # Write hex string
   %(prog)s /dev/ttyUSB0 -g 0x8000            # Jump execution
+  %(prog)s /dev/ttyUSB0 -x "4F9D"            # Execution Machine-Code
   %(prog)s --list-ports                      # List available serial ports
         """
     )
