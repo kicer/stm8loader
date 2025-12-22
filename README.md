@@ -9,7 +9,7 @@ Note: The bootloader implementation is based on and inspired by the [STM8uLoader
 ## Features
 
 - **Three-stage Bootloader**:
-  - Boot0: TRAP isr for load boot1
+  - Boot0: Reset/TRAP isr for load boot1
   - Boot1: Minimal bootloader stored in *reserved* option bytes
   - Boot2: Full-featured bootloader loaded via serial communication
   
@@ -37,7 +37,7 @@ This project's bootloader implementation is derived from the excellent STM8uLoad
 
 1. **Power-on/Reset**:
    - MCU starts execution at reset vector(0x8000)
-   - Control transfers to `bootloader_enter()` in `bsp/init0.c`
+   - Control transfers to `bootloader_enter()`
    
 2. **Stage 1 (Boot1)**:
    - Copies Boot1 from option bytes (0x480E-0x483F) to RAM and Run
@@ -52,6 +52,14 @@ This project's bootloader implementation is derived from the excellent STM8uLoad
 4. **Application Start**:
    - On successful programming or timeout, jumps to main application(0x8004)
    - Option to stay in bootloader mode for debugging
+
+## Bootloader Integration
+
+1. The main application includes `bootloader.h`, which redirects the TRAP interrupt vector to `bootloader_enter()` in `bsp/boot0.c`.
+
+2. During the build process, the Makefile swaps the reset vector (0x8000) and trap vector (0x8004) positions. This ensures that upon startup, the bootloader entry routine executes first.
+
+3. It sends a handshake signal (`0x00 0x0D`) via UART1 and waits approximately 200ms for a response. Within the timeout period, execution proceeds to the main application.
 
 ## Building the Project
 
@@ -80,16 +88,6 @@ make all
 # Program device (requires stm8flash)
 make flash
 ```
-
-## Bootloader Integration
-
-1. The main application includes `bootloader.h`, which redirects the TRAP interrupt vector to `bootloader_enter()` in `bsp/boot0.c`.
-
-2. During the build process, the Makefile swaps the reset vector (0x8000) and trap vector (0x8004) positions. This ensures that upon startup, the bootloader entry routine executes first.
-
-3. It sends a handshake signal (`0x00 0x0D`) via UART1 and waits approximately 200ms for a response.
-
-4. If no response is received within the timeout period, execution proceeds to the main application (reset vector).
 
 ## Option Bytes Configuration
 
