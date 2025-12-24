@@ -170,9 +170,9 @@ Currently tested with:
 
 - [STM8uLoader](https://github.com/ovsp/STM8uLoader)
 - [STM8S Reference Manual](https://www.st.com/resource/en/reference_manual/cd00190271-stm8s-series-and-stm8af-series-8bit-microcontrollers-stmicroelectronics.pdf)
+- [STM8 CPU programming manual](https://www.st.com/resource/en/programming_manual/cd00161709-stm8-cpu-programming-manual-stmicroelectronics.pdf)
 - [SDCC User Guide](http://sdcc.sourceforge.net/doc/sdccman.pdf)
 - [STM8 Bootloader AN2659](https://www.st.com/resource/en/application_note/cd00173937-stm8-swim-communication-protocol-and-debug-module-stmicroelectronics.pdf)
-- [STM8 CPU programming manual](https://www.st.com/resource/en/programming_manual/cd00161709-stm8-cpu-programming-manual-stmicroelectronics.pdf)
 
 ---
 
