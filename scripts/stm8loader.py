@@ -1070,7 +1070,7 @@ Examples:
                 loader.close()
                 return 1
 
-        elif args.write:
+        if args.write:
             command_executed = True
             try:
                 addr = int(args.write[0], 0)
@@ -1096,18 +1096,7 @@ Examples:
                 loader.close()
                 return 1
 
-        elif args.go:
-            command_executed = True
-            try:
-                addr = int(args.go, 0)
-                if loader.go_execute(addr):
-                    print(f"[INFO] Sent jump to 0x{addr:04X} command")
-            except Exception as e:
-                print(f"[ERROR] Jump failed: {e}")
-                loader.close()
-                return 1
-
-        elif args.exec:
+        if args.exec:
             command_executed = True
             try:
                 addr = 0
@@ -1121,6 +1110,17 @@ Examples:
                     print(f"[INFO] Exec {len(machine_code)} bytes")
             except Exception as e:
                 print(f"[ERROR] Exec failed: {e}")
+                loader.close()
+                return 1
+
+        if args.go:
+            command_executed = True
+            try:
+                addr = int(args.go, 0)
+                if loader.go_execute(addr):
+                    print(f"[INFO] Sent jump to 0x{addr:04X} command")
+            except Exception as e:
+                print(f"[ERROR] Jump failed: {e}")
                 loader.close()
                 return 1
 
