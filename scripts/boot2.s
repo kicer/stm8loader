@@ -48,14 +48,12 @@ DEFAULT_SP_H = 0x0000  ; Saved with SP value
 DEFAULT_SP_L = 0x0001  ;
 rx_state          = 2  ; 接收状态
 rx_length         = 3  ; 接收长度
-tx_state          = 4  ; 发送状态
-tx_data_length    = 5  ; 待发送的数据长度
-calc_checksum     = 6  ; 计算的校验和
-temp_var1         = 7  ; 临时变量
-temp_var2         = 8  ; 临时变量
-temp_var3         = 9  ; 临时变量
-tx_buffer    = 0x000A  ; protocol tx buffer
-rx_buffer    = 0x000A  ; protocol rx buffer
+tx_data_length    = 4  ; 待发送的数据长度
+calc_checksum     = 5  ; 计算的校验和
+temp_var1         = 6  ; 临时变量
+temp_var2         = 7  ; 临时变量
+tx_buffer    = 0x0008  ; protocol tx buffer
+rx_buffer    = 0x0008  ; protocol rx buffer
 
 BOOT2_ULA   = 0x03CF   ; boot2 ram Upper-Limit-Address
 
@@ -293,8 +291,7 @@ _read_loop:
     ret
 
 ; temp_var1: 待写入长度
-; temp_var2: 单次写长度
-; temp_var3: FLASH_IAPSR
+; temp_var2: FLASH_IAPSR
 write_memory:
     ; A = 写入长度 
     ldw X, #rx_buffer+4
@@ -302,7 +299,7 @@ write_memory:
     ld temp_var1, A
     ; 检查长度为0直接返回
     tnz A
-    jreq _write_success
+    jreq _flash_write_success
 
     ; Y = src
     incw X
@@ -330,53 +327,34 @@ _mem_write:
     incw Y
     dec temp_var1
     jrne _mem_write
-    ld A, #SUCCESS_CODE
-    callr send_ack_state_response
-    ret
+    jra _flash_write_success
 
 _flash_write:
     ; unlock FLASH/DATA
     callr unlock_flash
 
-    ; Word Program
-    mov FLASH_CR2, #0xC0
-    mov FLASH_NCR2, #0x3F
-
-_word_write:
-    mov temp_var2, #4
-_write_loop:
-    ; Write a Word
+_flash_byte_write:
     ld A, (Y)
     ld (X), A
-    incw X
-    incw Y
-    dec temp_var2
-    jrne _write_loop
     ; Wait write done
 _wait_flash_done:
-    mov temp_var3, FLASH_IAPSR
-    btjt   temp_var3, #0, _write_error
-    btjf   temp_var3, #2, _wait_flash_done
+    mov temp_var2, FLASH_IAPSR
+    btjt   temp_var2, #0, _flash_write_error
+    btjf   temp_var2, #2, _wait_flash_done
+    incw X
+    incw Y
+    dec temp_var1
+    jrne _flash_byte_write
 
-    ld A, temp_var1
-    cp A, #4
-    jrule _write_success
-    sub A, #4
-    ld temp_var1, A
-    jra _word_write
-
-_write_error:
-    mov tx_state, #ERR_PGDIS
-    jra _write_end
-_write_success:
-    mov tx_state, #SUCCESS_CODE
-_write_end:
-    ; Word programming off
-    mov FLASH_CR2, #0x00
-    mov FLASH_NCR2, #0xFF
-    ; lock FLASH/DATA
     callr lock_flash
-    ld A, tx_state
+_flash_write_success:
+    ld A, #SUCCESS_CODE
+    call send_ack_state_response
+    ret
+
+_flash_write_error:
+    callr lock_flash
+    ld A, #ERR_PGDIS
     call send_ack_state_response
     ret
 
@@ -392,6 +370,9 @@ _do_unlock_flash:
 _do_unlock_data:
     mov FLASH_DUKR, #0xAE    ; KEY1
     mov FLASH_DUKR, #0x56    ; KEY2
+    ; option byte programming on
+    mov FLASH_CR2, #0x80
+    mov FLASH_NCR2, #0x7F
     ret
 
 lock_flash:
@@ -403,6 +384,9 @@ _do_lock_flash:
     bres FLASH_IAPSR, #1
     ret
 _do_lock_data:
+    ; option byte programming off
+    mov FLASH_CR2, #0x00
+    mov FLASH_NCR2, #0xFF
     bres FLASH_IAPSR, #3
     ret
 
