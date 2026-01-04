@@ -1,5 +1,7 @@
 # STM8 Bootloader Template Project
 
+(English | [中文](README_zh.md))
+
 ## Overview
 
 This project provides a flexible bootloader implementation for STM8 microcontrollers using the SDCC compiler. The bootloader resides in the option bytes reserved area and enables in-application programming (IAP) capabilities via UART communication.
